@@ -1,2 +1,2 @@
 # DBS
-Databeses
+Databases
