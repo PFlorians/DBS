@@ -1,5 +1,4 @@
---use MI_Florians_Patrik_Cvicna;
---go
+
 -- 6.1
 create table skola.archiv_znamek(
 	id_archiv_znamek int primary key identity,
@@ -52,8 +51,8 @@ go
 --6.3
 create view pohlad_zmien
 as 
-select u.jmeno as [Jméno uèitele], u.prijmeni [Pøijmení uèitele], st.jmeno[Jméno studenta], st.prijmeni [Pøíjmení studenta], 
-		p.nazev as [Název pøedmìtu], arch.rozdil [Zmìna poètu bodù] 
+select u.jmeno as [JmÃ©no uÃ¨itele], u.prijmeni [PÃ¸ijmenÃ­ uÃ¨itele], st.jmeno[JmÃ©no studenta], st.prijmeni [PÃ¸Ã­jmenÃ­ studenta], 
+		p.nazev as [NÃ¡zev pÃ¸edmÃ¬tu], arch.rozdil [ZmÃ¬na poÃ¨tu bodÃ¹] 
 	from skola.archiv_znamek as arch join skola.student as st 
 		on arch.id_student=st.id_student join skola.ucitel as u on
 			u.id_ucitel=arch.id_ucitel join skola.predmet as p on
@@ -135,7 +134,7 @@ set @priemer = (select avg(z.body) from skola.znamka as z where z.id_predmet=@pr
 go
 create view v_odchylky_znamek
 as
-	select s.jmeno as [jméno], s.prijmeni as [pøijmení], p.nazev as [název], o.odchylka as [odchylka] 
+	select s.jmeno as [jmÃ©no], s.prijmeni as [pÃ¸ijmenÃ­], p.nazev as [nÃ¡zev], o.odchylka as [odchylka] 
 		from skola.odchylky_znamek as o
 			join skola.predmet as p on p.id_predmet = o.id_predmet
 			join skola.student as s on s.id_student = o.id_student;
