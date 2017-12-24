@@ -1,2 +1,2 @@
 # DBS
-Databases
+Databases, contains mostly pure sql codes.
