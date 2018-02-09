@@ -1,0 +1,31 @@
+Problem description as follows in Czech:
+Zpracujte relační datový model pro vámi zvolenou problematiku, který bude obsahovat minimálně 7 tabulek. Projekt bude zpracován v MS-ACCESS minimálně v takovém rozsahu, v jakém bude řešen týmový projekt v rámci cvičení.
+
+Minimální náležitosti v MS Access:
+
+    Úvodní formulář (bude z něj možno spouštět formuláře, sestavy, dotazy ...)
+    2 jiné formuláře pro vkládání dat (vč. ovládacích prvků)
+    2 jednoduché vyhledávací dotazy (z toho jeden se zadáváním parametrů)
+    2 sestavy (z toho jedna na základě dotazu se zadáváním parametrů)
+    relační spojení mezi tabulkami vč. zajištění referenční integrity
+    datové typy a délky u jednotlivých atributů budou navrženy optimálně!
+
+Stručná dokumentace k projektu bude přiložena v MS-WORD.
+
+    krátky popis problematiky
+    určení hlavních objektů
+
+Problem description in English(shortened):
+  Create relational data model using MS Access with at least 7 tables (entities).
+  
+  Minimal requirements on project using MS Access:
+    Intro form - main menu for the program
+    2 other forms for data insertion(including controls)
+    2 simple requests (out of which one has to use parameters for request)
+    2 constructs (out of which one has to be based on a request which uses parameters)
+    refferential integrity is necessary
+    data types and lengths have to be optimal size
+ 
+ Documentation shoul contain:
+  short description of a given task
+  choice of main entities(objects)
