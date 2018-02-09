@@ -1,0 +1,13 @@
+Description in Czech:
+V návaznosti na projekt č.1 si vyberte minimálně 2 procesy a pro každý z nich zpracujte:
+
+    Slovní popis
+    Vývojový diagram
+    Diagram toku dat
+    EPC diagram
+ Description in English:
+  Following the solution from project 1 choose at least 2 processes and fulfill the following for each of them:
+      Description
+      Flowchart
+      Data flow diagram
+      EPC diagram
