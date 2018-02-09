@@ -1,0 +1,1 @@
+This folder contains mostly data and functional programming projects which have been implemented using MS Access and Visio.
