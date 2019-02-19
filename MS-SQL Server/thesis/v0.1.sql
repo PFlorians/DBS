@@ -279,7 +279,7 @@ go
 -- shift type
 -- beginning of work -> end should be handled by updater procedure
 -- hours worked should be set to 0 upon initiation -> should be updated on check
-alter proc newAttendanceRecord
+create proc newAttendanceRecord
 @ulogin varchar(40),
 @fromString varchar(40),
 @shift varchar(8),
@@ -363,7 +363,7 @@ go
 -- should be called after new record creation was performed - user leaving workplace
 -- see associated insert trigger checking if the end of month is reached
 -- this procedure has to write into summary bonuses according to recorded shifts and shift type
-alter proc updateAttRecord
+create proc updateAttRecord
 @recId int,
 @leaveTimeString varchar(40),
 @errMsg varchar(255) output
@@ -423,7 +423,7 @@ as
 go
 -- summary procedure -> should be called mostly by checkEndMonth trigger
 --
-alter proc determineEmergency
+create proc determineEmergency
 @hours_worked_day real,
 @absenceType varchar(4),
 @lastShift varchar(8),
@@ -471,7 +471,7 @@ as
 		set @errMsg = ERROR_MESSAGE();
 	end catch;
 go
-alter proc determineOvertime
+create proc determineOvertime
 @hours_worked_day real,
 @expectedWorkTime real,
 @lastShift varchar(8),
@@ -529,8 +529,24 @@ alter proc determineBonus
 as
 	begin try
 		declare @monthlyHours real;
-		if((@lastShift like '[NO]%') or 
-				(DATEPART(weekday, @lastDate) >= 6))
+		if(@lastShift like '[NO]%')
+		begin
+			print 'podmienka 1';
+		end;
+		else
+		begin
+			print 'podm1 neplati';
+		end;
+		if((DATEPART(weekday, @lastDate)>=6))
+		begin
+			print 'podm 2 plati ';
+			print DATEPART(weekday, @lastDate);
+		end;
+		else
+		begin
+			print 'podm 2 neplati';
+		end;
+		if((@lastShift like '[NO]%') or (DATEPART(weekday, @lastDate) >= 6))
 		begin
 			insert into attendance.summary_bonuses(bonus_id, summary_id, day, bonus_hours)
 				select (case 
@@ -715,7 +731,7 @@ as
 	end catch;
 go
 --triggers go here
-alter trigger attendance.summaryUpdateSubroutine
+create trigger attendance.summaryUpdateSubroutine
 	on attendance.attendance_record
 		for update
 as
@@ -744,7 +760,8 @@ begin tran t0
 	select * from attendance.attusr
 	select * from attendance.shift
 	select * from attendance.attendance_record;
-	
+	set datefirst 1
+	select @@DATEFIRST
 	exec newAttendanceRecord 'pflorian', '06:00:00', 'D8',default,default,'01.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
 	exec newAttendanceRecord 'pflorian', '06:00:00', 'D8',default,default,'02.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
 	exec newAttendanceRecord 'pflorian', '06:00:00', 'D8',default,default,'03.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
