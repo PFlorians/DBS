@@ -1,4 +1,5 @@
 create database attendance_dev;
+use attendance_dev
 go
 create schema attendance authorization db_owner
 go
@@ -43,8 +44,8 @@ create table attendance.attendance_record
 (
 	record_id int identity(1, 1) primary key,
 	userLogin varchar(40) not null,
-	[from] datetime,
-	until datetime,
+	[from] time,
+	until time,
 	hours_worked_day real not null,
 	[day] date not null
 );
@@ -205,8 +206,8 @@ insert into attendance.bonus(bonus_id, descr, [% bonus])
 	values
 	('0110', 'Afternoon shift', 15), ('0123', 'Night Shift GITC', 20),
 	('0130', 'Saturday + Sunday', 29), ('0140', 'Public holiday', 100),
-	('0160', 'Standard overtime', 25), ('0161', 'Long overtime', 50),
-	 ('0300', 'Emergency', 25), ('0301', 'Emergency', 15);
+	('0160', 'Workday overtime', 25), ('0161', 'Weekend, holiday overtime', 50),
+	 ('0300', 'Emergency workdays', 25), ('0301', 'Emergency weekend, holidays', 15);
 
 insert into attendance.absence(type, descr)
 values
@@ -280,69 +281,82 @@ go
 -- hours worked should be set to 0 upon initiation -> should be updated on check
 alter proc newAttendanceRecord
 @ulogin varchar(40),
-@from time,
+@fromString varchar(40),
 @shift varchar(8),
 @absenceType varchar(4) = '',
 @absenceLength real = 0,
-@day date = '01.01.1990', -- default 
+@dayString varchar(40) = null, -- default 
 @override bit = 0, -- TESTING INPUT
 @errMsg varchar(255) output, 
 @recordId int output
 as
-	
+	declare @from time;
+	declare @day date;
 	begin try
-		if(@override = 1)
-		begin
-			insert into attendance.attendance_record(userLogin, [from], hours_worked_day, [day])
-				values (@ulogin, @from, 0, @day);
-			if((@absenceType not like '') and (@shift like 'VOLN')) -- means user absent
+		set @from=convert(time, @fromString);
+		set @day = convert(date, @dayString, 104);
+		if(@ulogin in (select ulogin from attendance.attusr) and
+			@shift in (select type from attendance.shift))
+		begin 
+			set @from = convert(time, @from)
+			if(@override = 1)
 			begin
-				insert into attendance.recorded_shifts(record_id, shifttype)
-					values (IDENT_CURRENT('attendance.attendance_record'), @shift);
-				insert into attendance.recorded_absence(record_id, type, absence_length)
-					values (IDENT_CURRENT('attendance.attendance_record'), @absenceType, @absenceLength);
+				insert into attendance.attendance_record(userLogin, [from], hours_worked_day, [day])
+					values (@ulogin, @from, 0, @day);
+				if((@absenceType not like '') and (@shift like 'VOLN')) -- means user absent
+				begin
+					insert into attendance.recorded_shifts(record_id, shifttype)
+						values (IDENT_CURRENT('attendance.attendance_record'), @shift);
+					insert into attendance.recorded_absence(record_id, [type], absence_length)
+						values (IDENT_CURRENT('attendance.attendance_record'), @absenceType, @absenceLength);
+				end;
+				else if((@absenceType like '') and (@shift like 'VOLN')) -- means user doesn't work
+				begin 
+					insert into attendance.recorded_shifts(record_id, shifttype)
+						values (IDENT_CURRENT('attendance.attendance_record'), @shift);
+				end;
+				else -- means regular work
+				begin
+					insert into attendance.recorded_shifts(record_id, shifttype)
+						values (IDENT_CURRENT('attendance.attendance_record'), @shift);
+				end;
+				set @recordId = IDENT_CURRENT('attendance.attendance_record');
 			end;
-			else if((@absenceType like '') and (@shift like 'VOLN')) -- means user doesn't work
-			begin 
-				insert into attendance.recorded_shifts(record_id, shifttype)
-					values (IDENT_CURRENT('attendance.attendance_record'), @shift);
-			end;
-			else -- means regular work
+			else
 			begin
-				insert into attendance.recorded_shifts(record_id, shifttype)
-					values (IDENT_CURRENT('attendance.attendance_record'), @shift);
+				set @day = convert(date, getdate(), 101);
+				insert into attendance.attendance_record(userLogin, [from], hours_worked_day, [day])
+					values (@ulogin, @from, 0, @day);
+				if((@absenceType not like '') and (@shift like 'VOLN')) -- means user absent
+				begin
+					insert into attendance.recorded_shifts(record_id, shifttype)
+						values (IDENT_CURRENT('attendance.attendance_record'), @shift);
+					insert into attendance.recorded_absence(record_id, [type], absence_length)
+						values (IDENT_CURRENT('attendance.attendance_record'), @absenceType, @absenceLength);
+				end;
+				else if((@absenceType like '') and (@shift like 'VOLN')) -- means user doesn't work
+				begin 
+					insert into attendance.recorded_shifts(record_id, shifttype)
+						values (IDENT_CURRENT('attendance.attendance_record'), @shift);
+				end;
+				else -- means regular work
+				begin
+					insert into attendance.recorded_shifts(record_id, shifttype)
+						values (IDENT_CURRENT('attendance.attendance_record'), @shift);
+				end;
+				set @recordId = IDENT_CURRENT('attendance.attendance_record');
 			end;
-			set @recordId = IDENT_CURRENT('attendance.attendance_record');
 		end;
 		else
-		begin
-			set @day = convert(date, getdate(), 101);
-			insert into attendance.attendance_record(userLogin, [from], hours_worked_day, [day])
-				values (@ulogin, @from, 0, @day);
-			if((@absenceType not like '') and (@shift like 'VOLN')) -- means user absent
-			begin
-				insert into attendance.recorded_shifts(record_id, shifttype)
-					values (IDENT_CURRENT('attendance.attendance_record'), @shift);
-				insert into attendance.recorded_absence(record_id, type, absence_length)
-					values (IDENT_CURRENT('attendance.attendance_record'), @absenceType, @absenceLength);
-			end;
-			else if((@absenceType like '') and (@shift like 'VOLN')) -- means user doesn't work
-			begin 
-				insert into attendance.recorded_shifts(record_id, shifttype)
-					values (IDENT_CURRENT('attendance.attendance_record'), @shift);
-			end;
-			else -- means regular work
-			begin
-				insert into attendance.recorded_shifts(record_id, shifttype)
-					values (IDENT_CURRENT('attendance.attendance_record'), @shift);
-			end;
-			set @recordId = IDENT_CURRENT('attendance.attendance_record');
+		begin 
+			set @errMsg = 'User or shift not found';
+			set @recordId = -1;
 		end;
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
 		set @recordId = -1; --erroneous state
-	end catch
+	end catch;
 go
 --updates attendance record in a standard manner -> that is automatic - user changes are done 
 -- in a different manner
@@ -351,14 +365,39 @@ go
 -- this procedure has to write into summary bonuses according to recorded shifts and shift type
 alter proc updateAttRecord
 @recId int,
-@leaveTime time,
+@leaveTimeString varchar(40),
 @errMsg varchar(255) output
 as
+	declare @leaveTime time;
+	declare @workedHours real;
+	declare @expectedWorkedHours real;
+	declare @checkDifference real;
 	begin try
-		update attendance.attendance_record
-		 -- implicit cast to real
-		set until = @leaveTime , hours_worked_day = datediff(MINUTE, [from], @leaveTime)/60.0
-		where record_id = @recId;
+	 set @leaveTime = CONVERT(time, @leaveTimeString);
+	 set @expectedWorkedHours = (select top 1 ash.planned_hours_work from attendance.attendance_record as ar join
+								attendance.recorded_shifts as ars on ars.record_id=ar.record_id
+								join attendance.shift as ash on ash.type=ars.shifttype
+								where ar.record_id=@recId);
+	 set @checkDifference = (select top 1 datediff(minute, ash.start_time, ash.end_time)/60.0 from attendance.attendance_record as ar join
+								attendance.recorded_shifts as ars on ars.record_id=ar.record_id
+								join attendance.shift as ash on ash.type=ars.shifttype
+								where ar.record_id=@recId);
+		if(@checkDifference = @expectedWorkedHours)
+		begin
+			update attendance.attendance_record
+			 -- implicit cast to real
+			set until = @leaveTime , hours_worked_day = datediff(MINUTE, [from], @leaveTime)/60.0
+			where record_id = @recId;
+		end;
+		else
+		begin 
+			set @workedHours = (select top 1 (DATEDIFF(minute, [from], @leaveTime)/60) - 0.5 
+								from attendance.attendance_record where record_id=@recId);
+			update attendance.attendance_record
+			 -- implicit cast to real
+			set until = @leaveTime , hours_worked_day = @workedHours
+			where record_id = @recId;
+		end;
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
@@ -384,7 +423,7 @@ as
 go
 -- summary procedure -> should be called mostly by checkEndMonth trigger
 --
-create proc determineEmergency
+alter proc determineEmergency
 @hours_worked_day real,
 @absenceType varchar(4),
 @lastShift varchar(8),
@@ -396,24 +435,32 @@ as
 		declare @monthlyHours real;
 		if((@hours_worked_day > 0 )and (@absenceType is null) and (@lastShift like 'VOLN'))
 		begin
-			if(@hours_worked_day >= 1)
+			if(datepart(WEEKDAY, @lastDate)>=6 or (@lastDate in (select [date] from attendance.public_holidays)))
 			begin
 				insert into attendance.summary_bonuses(bonus_id, summary_id, day, bonus_hours)
-					values('0300', @summaryID, @lastDate, @hours_worked_day*(select top 1 [% bonus]/100 
-																				from attendance.bonus
-																				where bonus_id like '0300'));
-			end;
-			else if(@hours_worked_day < 1)
-			begin
-				insert into attendance.summary_bonuses(bonus_id, summary_id, day, bonus_hours)
-					values('0301', @summaryId, @lastDate, @hours_worked_day*(select top 1 [% bonus]/100 
+					values('0301', @summaryID, @lastDate, @hours_worked_day*(select top 1 [% bonus]/100 
 																				from attendance.bonus
 																				where bonus_id like '0301'));
 			end;
+			else if(datepart(WEEKDAY, @lastDate)<6)
+			begin
+				insert into attendance.summary_bonuses(bonus_id, summary_id, day, bonus_hours)
+					values('0300', @summaryId, @lastDate, @hours_worked_day*(select top 1 [% bonus]/100 
+																				from attendance.bonus
+																				where bonus_id like '0300'));
+			end;
 			set @monthlyHours = (select top 1 bonus_hours_month from attendance.summary
 								where summary_id=@summaryId);
-			set @monthlyHours = @monthlyHours + (select top 1 bonus_hours from attendance.summary_bonuses
-												where id=IDENT_CURRENT('attendance.summary_bonuses'));
+			if((select top 1 bonus_hours from attendance.summary_bonuses
+												where id=(IDENT_CURRENT('attendance.summary_bonuses'))) is null)
+			begin
+				set @monthlyHours = @monthlyHours + 0;
+			end;
+			else
+			begin
+				set @monthlyHours = @monthlyHours + (select top 1 bonus_hours from attendance.summary_bonuses
+												where id=(IDENT_CURRENT('attendance.summary_bonuses')));
+			end;
 			-- update summary -> bonuses
 			update attendance.summary 
 				set bonus_hours_month = @monthlyHours
@@ -424,7 +471,7 @@ as
 		set @errMsg = ERROR_MESSAGE();
 	end catch;
 go
-create proc determineOvertime
+alter proc determineOvertime
 @hours_worked_day real,
 @expectedWorkTime real,
 @lastShift varchar(8),
@@ -435,23 +482,35 @@ as
 	begin try
 		declare @overtime real;
 		declare @monthlyHours real;
-		if(((@hours_worked_day - @expectedWorkTime) > 0) and ((@hours_worked_day - @expectedWorkTime)>=2) and (@lastShift not like 'VOLN'))
+		if(((@hours_worked_day - @expectedWorkTime) > 0) 
+		and ((datepart(WEEKDAY, @lastDate) >= 6) or (@lastDate in (select [date] from attendance.public_holidays)))
+		and (@lastShift not like 'VOLN'))
 		begin
-			set @overtime = 50; -- long overtime
+			set @overtime = 50;
 			insert into attendance.summary_bonuses(bonus_id, summary_id, day, bonus_hours)
 				values ('0161', @summaryId, @lastDate, (@overtime/100)*(@hours_worked_day - @expectedWorkTime));
 		end;
-		else if(((@hours_worked_day - @expectedWorkTime) > 0) and ((@hours_worked_day - @expectedWorkTime) < 2) and (@lastShift not like 'VOLN'))
+		else if(((@hours_worked_day - @expectedWorkTime) > 0) and 
+		(datepart(WEEKDAY, @lastDate) < 6) and 
+		(@lastShift not like 'VOLN'))
 		begin
-			set @overtime = 25; -- short overtime
+			set @overtime = 25;
 			insert into attendance.summary_bonuses(bonus_id, summary_id, day, bonus_hours)
 				values ('0160', @summaryId, @lastDate, (@overtime/100)*(@hours_worked_day - @expectedWorkTime));
 		end;
 		-- update to increase the overall value
 		set @monthlyHours = (select top 1 bonus_hours_month from attendance.summary
 							where summary_id=@summaryId);
-		set @monthlyHours = @monthlyHours + (select top 1 bonus_hours from attendance.summary_bonuses
-											where id=IDENT_CURRENT('attendance.summary_bonuses'));
+		if((select top 1 bonus_hours from attendance.summary_bonuses
+												where id=(IDENT_CURRENT('attendance.summary_bonuses'))) is null)
+		begin
+			set @monthlyHours = @monthlyHours + 0;
+		end;
+		else
+		begin
+			set @monthlyHours = @monthlyHours + (select top 1 bonus_hours from attendance.summary_bonuses
+											where id=(IDENT_CURRENT('attendance.summary_bonuses')));
+		end;
 		-- update summary -> bonuses
 		update attendance.summary 
 			set bonus_hours_month = @monthlyHours
@@ -461,7 +520,7 @@ as
 		set @errMsg = ERROR_MESSAGE();
 	end catch;
 go
-create proc determineBonus
+alter proc determineBonus
 @lastShift varchar(8),
 @lastDate date,
 @summaryId int,
@@ -470,9 +529,8 @@ create proc determineBonus
 as
 	begin try
 		declare @monthlyHours real;
-		if((@lastShift like 'O%') or (@lastShift like 'N%') or 
-				(DATEPART(weekday, convert(date, @lastDate, 101)) = 6) or 
-								(DATEPART(weekday, convert(date, @lastDate, 101)) = 7))
+		if((@lastShift like '[NO]%') or 
+				(DATEPART(weekday, @lastDate) >= 6))
 		begin
 			insert into attendance.summary_bonuses(bonus_id, summary_id, day, bonus_hours)
 				select (case 
@@ -502,8 +560,16 @@ as
 						end) as bonus_hours;
 			set @monthlyHours = (select top 1 bonus_hours_month from attendance.summary
 									where summary_id=@summaryId);
-			set @monthlyHours = @monthlyHours + (select top 1 bonus_hours from attendance.summary_bonuses
-											where id=IDENT_CURRENT('attendance.summary_bonuses'));
+			if((select top 1 bonus_hours from attendance.summary_bonuses
+												where id=(IDENT_CURRENT('attendance.summary_bonuses'))) is null)
+			begin
+				set @monthlyHours = @monthlyHours + 0;
+			end;
+			else
+			begin
+				set @monthlyHours = @monthlyHours + (select top 1 bonus_hours from attendance.summary_bonuses
+												where id=(IDENT_CURRENT('attendance.summary_bonuses')));
+			end;
 			-- update summary -> bonuses
 			update attendance.summary 
 				set bonus_hours_month = @monthlyHours
@@ -545,7 +611,7 @@ as
 		set @errMsg = ERROR_MESSAGE();
 	end catch;
 go
-create proc summaryUpdater
+alter proc summaryUpdater
 @ulogin varchar(40),
 @lastDate date,
 @hours_worked_day real,
@@ -613,7 +679,7 @@ as
 		else -- if summary doesn't yet exists, flow starts here
 		begin
 			insert into attendance.summary(record_id, hours_worked_month, hours_absent_month, bonus_hours_month)
-				values(IDENT_CURRENT('attendance.attendance_record'), @hours_worked_day, 0, 0);
+				values(@lastRecId, @hours_worked_day, 0, 0);
 			set @summaryCreated = IDENT_CURRENT('attendance.summary');
 			-- determine if emergency
 			exec determineEmergency @hours_worked_day, @absenceType, @lastShift, @summaryCreated, @lastDate, @errMsg=@errMsg;
@@ -649,7 +715,7 @@ as
 	end catch;
 go
 --triggers go here
-create trigger summaryUpdateSubroutine
+alter trigger attendance.summaryUpdateSubroutine
 	on attendance.attendance_record
 		for update
 as
@@ -658,12 +724,12 @@ as
 	declare @hours_worked_day real;
 	declare @lastRecId int;
 	declare @errMsg varchar(255);
-
+	select * from inserted;
 	set @insDate = (select top 1 [day] from inserted);
 	set @ulogin = (select top 1 userlogin from inserted);
 	set @hours_worked_day = (select top 1 hours_worked_day from inserted);
-	set @lastRecId = IDENT_CURRENT('attendance.attendance_record');
-
+	set @lastRecId = (select top 1 record_id from inserted);
+	
 	exec summaryUpdater @ulogin, @insDate, @hours_worked_day, @lastRecId, @errMsg=@errMsg;
 	if(@errMsg is not null)
 	begin
@@ -673,7 +739,44 @@ go
 
 -- testing goes here
 begin tran t0
-	declare @err varchar(255);
+	declare @errMsg varchar(255);
 	declare @recId int;
+	select * from attendance.attusr
+	select * from attendance.shift
+	select * from attendance.attendance_record;
+	
+	exec newAttendanceRecord 'pflorian', '06:00:00', 'D8',default,default,'01.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'pflorian', '06:00:00', 'D8',default,default,'02.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'pflorian', '06:00:00', 'D8',default,default,'03.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'pflorian', '14:00:00', 'O6',default,default,'04.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'pflorian', '14:00:00', 'O6',default,default,'05.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'pflorian', '14:00:00', 'O6',default,default,'06.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'pflorian', '14:00:00', 'O6',default,default,'07.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'pflorian', '14:00:00', 'O6',default,default,'08.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'pflorian', '00:00:00', 'VOLN',default,default,'09.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'pflorian', '00:00:00', 'VOLN',default,default,'10.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'pflorian', '00:00:00', 'VOLN','0100',8,'11.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'pflorian', '00:00:00', 'VOLN','0100',8,'12.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'pflorian', '00:00:00', 'VOLN','0100',8,'13.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'pflorian', '00:00:00', 'VOLN','0300',8,'14.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'pflorian', '00:00:00', 'VOLN','0310',8,'14.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
+	
+	select * from attendance.attendance_record;
+	select * from attendance.recorded_shifts;
+	select * from attendance.recorded_absence;
 
-rollback t0
+	exec updateAttRecord 1, '14:00:00', @errMsg=@errMsg;
+
+	select * from attendance.summary;
+	select * from attendance.summary_bonuses;
+	select * from attendance.summary_absence;
+	select * from attendance.summary_public_holidays;
+	
+	dbcc checkident ('attendance.attendance_record', reseed, 0);
+	dbcc checkident ('attendance.recorded_shifts', reseed, 0);
+	dbcc checkident ('attendance.recorded_absence', reseed, 0);
+	dbcc checkident ('attendance.summary', reseed, 0);
+	dbcc checkident ('attendance.summary_bonuses', reseed, 0);
+	dbcc checkident ('attendance.summary_absence', reseed, 0);
+	dbcc checkident ('attendance.summary_public_holidays', reseed, 0);
+rollback tran t0;
