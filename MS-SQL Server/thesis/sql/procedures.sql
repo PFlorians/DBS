@@ -266,6 +266,7 @@ as
 	declare @workedHours real;
 	declare @expectedWorkedHours real;
 	declare @checkDifference real;
+	declare @logTime time;
 	set datefirst 1;
 	begin try
 		if(OBJECT_ID('tempdb..#update_flag') is null) -- indicates whether an update is to be don
@@ -284,9 +285,21 @@ as
 								attendance.recorded_shifts as ars on ars.record_id=ar.record_id
 								join attendance.shift as ash on ash.type=ars.shifttype
 								where ar.record_id=@recId);
+		set @logTime = (select top 1 convert(time, rcl.change_timestamp, 101) from logs.record_change_log rcl
+								join logs.records_changes as rc on rc.log_id=rcl.log_id
+								join attendance.attendance_record as ar on ar.record_id=rc.record_id
+								where ar.record_id=@recId);
 		if(@checkDifference = @expectedWorkedHours)
 		begin
-			update #update_flag set flag=1;
+			--check if last update less than 3 minutes ago
+			if(abs(datediff(second, convert(time, getdate(), 101), @logTime))<=180)
+			begin
+				update #update_flag set flag=0;
+			end;
+			else
+			begin 
+				update #update_flag set flag=1;
+			end;
 			update attendance.attendance_record
 			 -- implicit cast to real
 			set until = @leaveTime , hours_worked_day = datediff(MINUTE, [from], @leaveTime)/60.0
@@ -303,7 +316,15 @@ as
 		begin
 			set @workedHours = (select top 1 (DATEDIFF(minute, [from], @leaveTime)/60.0) - 0.5
 								from attendance.attendance_record where record_id=@recId);
-			update #update_flag set flag=1;
+			--check if last update less than 3 minutes ago
+			if(abs(datediff(second, convert(time, getdate(), 101), @logTime))<=180)
+			begin
+				update #update_flag set flag=0;
+			end;
+			else
+			begin 
+				update #update_flag set flag=1;
+			end;
 			update attendance.attendance_record
 			 -- implicit cast to real
 			set until = @leaveTime , hours_worked_day = @workedHours
