@@ -333,6 +333,7 @@ alter proc summaryUpdater
 @lastDate date,
 @hours_worked_day real,
 @lastRecId int,
+@updateAbsenceSummaryFlag bit=0, -- whether this is a regular insert or an update, otherwise there will be duplicities
 @errMsg varchar(255) output
 as
 	declare @summaryCreated int;
@@ -346,26 +347,34 @@ as
 	begin try
 		--verify if a summary for a given user in a given month's records exists
 		-- of so, no new shall be created, otherwise create a new one
-		
+
 		set @summaryCreated = (select top 1 asu.summary_id from attendance.attusr as au
 			join attendance.attendance_record as ar on ar.userLogin = au.ulogin
 			join attendance.summary as asu on asu.record_id=ar.record_id
 			where ar.userLogin = @ulogin and (MONTH(@lastDate) = MONTH(ar.[day]))
 			order by ar.record_id asc);
-		
+
 		set @lastShift = (select top 1 shifttype from attendance.recorded_shifts where record_id=@lastRecId order by id desc);
 		set @expectedWorkTime = (select top 1 planned_hours_work from attendance.shift where [type]=@lastShift);
-		set @absenceType = (select top 1 [type] from attendance.recorded_absence 
+		set @absenceType = (select top 1 [type] from attendance.recorded_absence
 							where record_id=@lastRecId order by id desc);
 		-- deciding whether this is an absence or not
 		-- if yes, then there can be no bonuses, just record absence, thats it
 		-- if something is a weekend, do nothing
 		if(@expectedWorkTime = 0.0 and @hours_worked_day <> 0.0 and @lastShift like 'VOLN' and @absenceType not like '')
 		begin
-			exec absenceChecker @ulogin, @lastDate, @hours_worked_day, @lastRecId, @summaryCreated, @lastShift, @expectedWorkTime, @absenceType, @errMsg=@errMsg;
+			if(@updateAbsenceSummaryFlag = 1)
+			begin
+				exec absenceChecker @ulogin, @lastDate, @hours_worked_day, @lastRecId, @summaryCreated, @lastShift, @expectedWorkTime, @absenceType, 1, @errMsg=@errMsg;
+			end;
+			else
+			begin
+				exec absenceChecker @ulogin, @lastDate, @hours_worked_day, @lastRecId, @summaryCreated, @lastShift, @expectedWorkTime, @absenceType, 0, @errMsg=@errMsg;
+			end;
 			if(@errMsg is not null)
 			begin
-				print 'Error determining absence summaryChecker: ' + @errMsg;
+				set @errMsg= 'Error determining absence summaryChecker: ' + @errMsg;
+				throw 50123, @errMsg, 1;
 			end;
 		end;
 		else if(@expectedWorkTime <> 0 and (@lastShift not like 'VOLN') and (@absenceType like '' or @absenceType is null))
@@ -373,12 +382,14 @@ as
 			exec fullCheck @ulogin, @lastDate, @hours_worked_day, @lastRecId, @summaryCreated, @lastShift, @expectedWorkTime, @absenceType, @errMsg=@errMsg;
 			if(@errMsg is not null)
 			begin
-				print 'Error determining absence summaryChecker - fullCheck: ' + @errMsg;
-			end;	
+				set @errMsg = 'Error determining absence summaryChecker - fullCheck: ' + @errMsg;
+				throw 50124, @errMsg, 1;
+			end;
 		end;
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
+		throw 50125, @errMsg, 2;
 	end catch;
 go
 -- auto updater trigger
