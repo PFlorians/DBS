@@ -271,7 +271,7 @@ as
 	declare @workedHours real;
 	declare @expectedWorkedHours real;
 	declare @checkDifference real;
-	set datefirst 1;			       
+	set datefirst 1;
 	begin try
 		if(OBJECT_ID('tempdb..#update_flag') is null)
 		begin
@@ -297,11 +297,17 @@ as
 			 -- implicit cast to real
 			set until = @leaveTime , hours_worked_day = datediff(MINUTE, [from], @leaveTime)/60.0
 			where record_id = @recId;
+			exec logRecordChange @recId, @errMsg out;--log this change
+			if(@errMsg is not null)
+			begin
+				;
+				throw 50122, @errMsg, 1;
+			end;
 			update #update_flag set flag=0;
 		end;
 		else
-		begin 
-			set @workedHours = (select top 1 (DATEDIFF(minute, [from], @leaveTime)/60.0) - 0.5 
+		begin
+			set @workedHours = (select top 1 (DATEDIFF(minute, [from], @leaveTime)/60.0) - 0.5
 								from attendance.attendance_record where record_id=@recId);
 			exec logRecordChange @recId, @errMsg out;
 			update #update_flag set flag=1;
@@ -309,6 +315,12 @@ as
 			 -- implicit cast to real
 			set until = @leaveTime , hours_worked_day = @workedHours
 			where record_id = @recId;
+			exec logRecordChange @recId, @errMsg out;--log this change
+			if(@errMsg is not null)
+			begin
+				;
+				throw 50122, @errMsg, 1;
+			end;
 			update #update_flag set flag=0;
 		end;
 	end try
