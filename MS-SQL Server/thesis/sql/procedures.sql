@@ -12,6 +12,7 @@ as
 	begin try
 		if(not exists(select 1 from attendance.attusr where ulogin=@ulogin)) -- proceed with creation
 		begin
+			exec logUserChange @ulogin, @errMsg out;
 			insert into attendance.attusr(ulogin, user_typeid, eid, [name], lastname, email)
 			values(@ulogin, @user_typeId, @eid, @name, @lastname, @email);
 		end;
@@ -23,6 +24,7 @@ as
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE(); --error caught here
+		throw 1, @errMsg, 1;
 	end catch;
 go
 -- check if user exists 
