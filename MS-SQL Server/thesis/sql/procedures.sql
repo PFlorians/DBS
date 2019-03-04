@@ -54,10 +54,10 @@ alter proc attRecInsertionSubroutine -- this must be called within try catch blo
 @shift varchar(8),
 @absenceType varchar(4) = '',
 @absenceLength real = 0,
-@dayString varchar(40) = null, -- default 
+@dayString varchar(40) = null, -- default
 @override bit = 0, -- TESTING INPUT
 @existingRecId int = -1,
-@errMsg varchar(255) output, 
+@errMsg varchar(255) output,
 @recordId int output
 as
 	declare @from time;
@@ -67,7 +67,7 @@ as
 	set @day = convert(date, @dayString, 104);
 	if(@ulogin in (select ulogin from attendance.attusr) and
 		@shift in (select type from attendance.shift))
-	begin 
+	begin
 		set @from = convert(time, @from)
 		if(@override = 1)
 		begin
@@ -76,11 +76,23 @@ as
 				update attendance.attendance_record
 					set userLogin = @ulogin, [from] = @from, until=null, [day] = @day
 					where record_id=@recordId;
+				exec logRecordChange @recordId, @errMsg out;--log this change
+				if(@errMsg is not null)
+				begin
+					;
+					throw 50122, @errMsg, 1;
+				end;
 			end;
 			else
 			begin
 				insert into attendance.attendance_record(userLogin, [from], hours_worked_day, [day])
 					values (@ulogin, @from, 0, @day);
+				exec logRecordChange @recordId, @errMsg out;--log change
+				if(@errMsg is not null)
+				begin
+					;
+					throw 50122, @errMsg, 1;
+				end;
 			end;
 			if(@errMsg is not null)
 			begin
@@ -93,6 +105,11 @@ as
 				begin
 					set @recordId = IDENT_CURRENT('attendance.attendance_record');
 					exec logRecordChange @recordId, @errMsg out;
+					if(@errMsg is not null)
+					begin
+						;
+						throw 50122, @errMsg, 1;
+					end;
 					if((@absenceType not like '') and (@shift like 'VOLN')) -- means user absent
 					begin
 						insert into attendance.recorded_shifts(record_id, shifttype)
@@ -101,7 +118,7 @@ as
 							values (@recordId, @absenceType, @absenceLength);
 					end;
 					else if((@absenceType like '') and (@shift like 'VOLN')) -- means user doesn't work
-					begin 
+					begin
 						insert into attendance.recorded_shifts(record_id, shifttype)
 							values (@recordId, @shift);
 					end;
@@ -121,11 +138,23 @@ as
 				update attendance.attendance_record
 					set userLogin = @ulogin, [from] = @from, until=null, [day] = @day
 					where record_id=@recordId;
+				exec logRecordChange @recordId, @errMsg out;--log change
+				if(@errMsg is not null)
+				begin
+					;
+					throw 50122, @errMsg, 1;
+				end;
 			end;
 			else
 			begin
 				insert into attendance.attendance_record(userLogin, [from], hours_worked_day, [day])
 					values (@ulogin, @from, 0, @day);
+				exec logRecordChange @recordId, @errMsg out;--log change
+				if(@errMsg is not null)
+				begin
+					;
+					throw 50122, @errMsg, 1;
+				end;
 			end;
 			if(@errMsg is not null)
 			begin
@@ -138,6 +167,11 @@ as
 				begin
 					set @recordId = IDENT_CURRENT('attendance.attendance_record');
 					exec logRecordChange @recordId, @errMsg out;
+					if(@errMsg is not null)
+					begin
+						;
+						throw 50122, @errMsg, 1;
+					end;
 					if((@absenceType not like '') and (@shift like 'VOLN')) -- means user absent
 					begin
 						insert into attendance.recorded_shifts(record_id, shifttype)
@@ -146,7 +180,7 @@ as
 							values (@recordId, @absenceType, @absenceLength);
 					end;
 					else if((@absenceType like '') and (@shift like 'VOLN')) -- means user doesn't work
-					begin 
+					begin
 						insert into attendance.recorded_shifts(record_id, shifttype)
 							values (@recordId, @shift);
 					end;
@@ -160,7 +194,7 @@ as
 		end;
 	end;
 	else
-	begin 
+	begin
 		set @recordId = -1;
 		throw 50113, 'User or shift not found', 50113;
 	end;
