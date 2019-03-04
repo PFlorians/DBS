@@ -60,7 +60,7 @@ alter proc attRecInsertionSubroutine -- this must be called within try catch blo
 as
 	declare @from time;
 	declare @day date;
-
+	set datefirst 1;
 	set @from=convert(time, @fromString);
 	set @day = convert(date, @dayString, 104);
 	if(@ulogin in (select ulogin from attendance.attusr) and
@@ -181,6 +181,7 @@ alter proc newAttendanceRecord
 as
 	declare @from time;
 	declare @day date;
+	set datefirst 1;									    
 	begin try
 		if(OBJECT_ID('tempdb..#update_flag') is null)
 		begin
@@ -234,6 +235,7 @@ as
 	declare @workedHours real;
 	declare @expectedWorkedHours real;
 	declare @checkDifference real;
+	set datefirst 1;			       
 	begin try
 		if(OBJECT_ID('tempdb..#update_flag') is null)
 		begin
