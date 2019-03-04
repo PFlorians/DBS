@@ -46,7 +46,123 @@ as
 		set @errMsg = ERROR_MESSAGE();
 	end catch;
 go
--- this procedure inserts records to all tables given a specific parameters
+alter proc attRecInsertionSubroutine -- this must be called within try catch block
+@ulogin varchar(40),
+@fromString varchar(40),
+@shift varchar(8),
+@absenceType varchar(4) = '',
+@absenceLength real = 0,
+@dayString varchar(40) = null, -- default 
+@override bit = 0, -- TESTING INPUT
+@existingRecId int = -1,
+@errMsg varchar(255) output, 
+@recordId int output
+as
+	declare @from time;
+	declare @day date;
+
+	set @from=convert(time, @fromString);
+	set @day = convert(date, @dayString, 104);
+	if(@ulogin in (select ulogin from attendance.attusr) and
+		@shift in (select type from attendance.shift))
+	begin 
+		set @from = convert(time, @from)
+		if(@override = 1)
+		begin
+			if(@existingRecId > -1)
+			begin
+				update attendance.attendance_record
+					set userLogin = @ulogin, [from] = @from, until=null, [day] = @day
+					where record_id=@recordId;
+			end;
+			else
+			begin
+				insert into attendance.attendance_record(userLogin, [from], hours_worked_day, [day])
+					values (@ulogin, @from, 0, @day);
+			end;
+			if(@errMsg is not null)
+			begin
+				print @errMsg;
+				throw 50111, @errMsg, 50111;
+			end;
+			else
+			begin
+				if(@existingRecId = -1)
+				begin
+					set @recordId = IDENT_CURRENT('attendance.attendance_record');
+					exec logRecordChange @recordId, @errMsg out;
+					if((@absenceType not like '') and (@shift like 'VOLN')) -- means user absent
+					begin
+						insert into attendance.recorded_shifts(record_id, shifttype)
+							values (@recordId, @shift);
+						insert into attendance.recorded_absence(record_id, [type], absence_length)
+							values (@recordId, @absenceType, @absenceLength);
+					end;
+					else if((@absenceType like '') and (@shift like 'VOLN')) -- means user doesn't work
+					begin 
+						insert into attendance.recorded_shifts(record_id, shifttype)
+							values (@recordId, @shift);
+					end;
+					else -- means regular work
+					begin
+						insert into attendance.recorded_shifts(record_id, shifttype)
+							values (@recordId, @shift);
+					end;
+				end;
+			end;
+		end;
+		else -- real mode nodebug
+		begin
+			set @day = convert(date, getdate(), 101);
+			if(@existingRecId > -1)
+			begin
+				update attendance.attendance_record
+					set userLogin = @ulogin, [from] = @from, until=null, [day] = @day
+					where record_id=@recordId;
+			end;
+			else
+			begin
+				insert into attendance.attendance_record(userLogin, [from], hours_worked_day, [day])
+					values (@ulogin, @from, 0, @day);
+			end;
+			if(@errMsg is not null)
+			begin
+				print @errMsg;
+				throw 50112, @errMsg, 50112;
+			end;
+			else
+			begin
+				if(@existingRecId = -1)
+				begin
+					set @recordId = IDENT_CURRENT('attendance.attendance_record');
+					exec logRecordChange @recordId, @errMsg out;
+					if((@absenceType not like '') and (@shift like 'VOLN')) -- means user absent
+					begin
+						insert into attendance.recorded_shifts(record_id, shifttype)
+							values (@recordId, @shift);
+						insert into attendance.recorded_absence(record_id, [type], absence_length)
+							values (@recordId, @absenceType, @absenceLength);
+					end;
+					else if((@absenceType like '') and (@shift like 'VOLN')) -- means user doesn't work
+					begin 
+						insert into attendance.recorded_shifts(record_id, shifttype)
+							values (@recordId, @shift);
+					end;
+					else -- means regular work
+					begin
+						insert into attendance.recorded_shifts(record_id, shifttype)
+							values (@recordId, @shift);
+					end;
+				end;
+			end;--att recording ends here
+		end;
+	end;
+	else
+	begin 
+		set @recordId = -1;
+		throw 50113, 'User or shift not found', 50113;
+	end;
+go-- this procedure inserts records to all tables given a specific parameters
 -- Required parameters are as follows:
 -- user login
 -- shift type
@@ -63,73 +179,45 @@ alter proc newAttendanceRecord
 @errMsg varchar(255) output, 
 @recordId int output
 as
-	set datefirst 1;
 	declare @from time;
 	declare @day date;
-	set datefirst 1; -- needs to be done everywhere
 	begin try
+		if(OBJECT_ID('tempdb..#update_flag') is null)
+		begin
+			create table #update_flag(
+				flag bit default 0
+				);
+				insert into #update_flag(flag) values (0);
+		end;
 		set @from=convert(time, @fromString);
 		set @day = convert(date, @dayString, 104);
-		if(@ulogin in (select ulogin from attendance.attusr) and
-			@shift in (select type from attendance.shift))
-		begin 
-			set @from = convert(time, @from)
-			if(@override = 1)
-			begin
-				insert into attendance.attendance_record(userLogin, [from], hours_worked_day, [day])
-					values (@ulogin, @from, 0, @day);
-				if((@absenceType not like '') and (@shift like 'VOLN')) -- means user absent
-				begin
-					insert into attendance.recorded_shifts(record_id, shifttype)
-						values (IDENT_CURRENT('attendance.attendance_record'), @shift);
-					insert into attendance.recorded_absence(record_id, [type], absence_length)
-						values (IDENT_CURRENT('attendance.attendance_record'), @absenceType, @absenceLength);
-				end;
-				else if((@absenceType like '') and (@shift like 'VOLN')) -- means user doesn't work
-				begin 
-					insert into attendance.recorded_shifts(record_id, shifttype)
-						values (IDENT_CURRENT('attendance.attendance_record'), @shift);
-				end;
-				else -- means regular work
-				begin
-					insert into attendance.recorded_shifts(record_id, shifttype)
-						values (IDENT_CURRENT('attendance.attendance_record'), @shift);
-				end;
-				set @recordId = IDENT_CURRENT('attendance.attendance_record');
+		if(@day in (select [day] from attendance.attendance_record)) -- someone beeps two times in succession
+		begin
+			declare @logTime time;
+			-- we need to check timestamp in log to probe for changes
+			set @recordId = (select top 1 record_id from attendance.attendance_record where [day]=@day);
+			set @logTime = (select top 1 convert(time, rcl.change_timestamp, 101) from logs.record_change_log rcl
+							join logs.records_changes as rc on rc.log_id=rcl.log_id
+							join attendance.attendance_record as ar on ar.record_id=rc.record_id
+							where ar.record_id=@recordId);
+			if(abs(datediff(second, convert(time, getdate(), 101), @logTime))<=180)--difference less than 3 minutes
+			begin --rewrite, otherwise error
+				exec attRecInsertionSubroutine @ulogin, @fromString, @shift, @absenceType, @absenceLength, @dayString, @override, @recordId, @errMsg out, @recordId out;
 			end;
 			else
 			begin
-				set @day = convert(date, getdate(), 101);
-				insert into attendance.attendance_record(userLogin, [from], hours_worked_day, [day])
-					values (@ulogin, @from, 0, @day);
-				if((@absenceType not like '') and (@shift like 'VOLN')) -- means user absent
-				begin
-					insert into attendance.recorded_shifts(record_id, shifttype)
-						values (IDENT_CURRENT('attendance.attendance_record'), @shift);
-					insert into attendance.recorded_absence(record_id, [type], absence_length)
-						values (IDENT_CURRENT('attendance.attendance_record'), @absenceType, @absenceLength);
-				end;
-				else if((@absenceType like '') and (@shift like 'VOLN')) -- means user doesn't work
-				begin 
-					insert into attendance.recorded_shifts(record_id, shifttype)
-						values (IDENT_CURRENT('attendance.attendance_record'), @shift);
-				end;
-				else -- means regular work
-				begin
-					insert into attendance.recorded_shifts(record_id, shifttype)
-						values (IDENT_CURRENT('attendance.attendance_record'), @shift);
-				end;
-				set @recordId = IDENT_CURRENT('attendance.attendance_record');
+				set @recordId = -1; --error
+				throw 50111, 'Error, cannot rewrite this arrival time', 1;
 			end;
 		end;
-		else
-		begin 
-			set @recordId = -1;
-			throw 1, 'User or shift not found', 1; -- throw error here
+		else -- regular procedure
+		begin
+			exec attRecInsertionSubroutine @ulogin, @fromString, @shift, @absenceType, @absenceLength, @dayString, @override, -1, @errMsg out, @recordId out;
 		end;
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
+		set @recordId = -1; --erroneous state
 	end catch;
 go
 --updates attendance record in a standard manner -> that is automatic - user changes are done 
@@ -146,8 +234,14 @@ as
 	declare @workedHours real;
 	declare @expectedWorkedHours real;
 	declare @checkDifference real;
-	set datefirst 1; -- needs to be done everywhere
 	begin try
+		if(OBJECT_ID('tempdb..#update_flag') is null)
+		begin
+			create table #update_flag(
+				flag bit default 0
+				);
+				insert into #update_flag(flag) values (0);
+		end;
 	 set @leaveTime = CONVERT(time, @leaveTimeString);
 	 set @expectedWorkedHours = (select top 1 ash.planned_hours_work from attendance.attendance_record as ar join
 								attendance.recorded_shifts as ars on ars.record_id=ar.record_id
@@ -159,22 +253,29 @@ as
 								where ar.record_id=@recId);
 		if(@checkDifference = @expectedWorkedHours)
 		begin
+			exec logRecordChange @recId, @errMsg out;
+			update #update_flag set flag=1;
 			update attendance.attendance_record
 			 -- implicit cast to real
 			set until = @leaveTime , hours_worked_day = datediff(MINUTE, [from], @leaveTime)/60.0
 			where record_id = @recId;
+			update #update_flag set flag=0;
 		end;
 		else
 		begin 
 			set @workedHours = (select top 1 (DATEDIFF(minute, [from], @leaveTime)/60.0) - 0.5 
 								from attendance.attendance_record where record_id=@recId);
+			exec logRecordChange @recId, @errMsg out;
+			update #update_flag set flag=1;
 			update attendance.attendance_record
 			 -- implicit cast to real
 			set until = @leaveTime , hours_worked_day = @workedHours
 			where record_id = @recId;
+			update #update_flag set flag=0;
 		end;
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
+		select @errMsg;
 	end catch;
 go
