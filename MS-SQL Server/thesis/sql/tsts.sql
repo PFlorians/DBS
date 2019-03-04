@@ -1,13 +1,20 @@
--- testing goes here
-
+begin tran t
+declare @errMsg varchar(255);
+-- create users first
+	begin try
+		exec init_user 'pflorian', 1, '88000041', 'Patrik', 'Florians', 'Patrik.Florians@heidelbergcement.com', @errMsg out;
+	end try
+	begin catch 
+		select ERROR_MESSAGE();
+	end catch;
+commit tran t
 begin tran t0
 	declare @errMsg varchar(255);
 	declare @recId int;
-	select * from attendance.attusr
-	select * from attendance.shift
-	select * from attendance.attendance_record;
+
 	set datefirst 1
-	select @@DATEFIRST
+	
+	begin try
 	exec newAttendanceRecord 'pflorian', '05:53:15', 'D8',default,default,'01.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
 	exec newAttendanceRecord 'pflorian', '05:55:23', 'D8',default,default,'02.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
 	exec newAttendanceRecord 'pflorian', '06:01:19', 'D8',default,default,'03.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
@@ -24,11 +31,18 @@ begin tran t0
 	exec newAttendanceRecord 'pflorian', '00:00:00', 'VOLN','0300',8,'14.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
 	-- duplicity test
 	exec newAttendanceRecord 'pflorian', '00:00:00', 'VOLN','0310',8,'14.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
-
+	end try
+	begin catch
+		select ERROR_MESSAGE();
+	end catch;
 	select * from attendance.attendance_record;
 	select * from attendance.recorded_shifts;
 	select * from attendance.recorded_absence;
+	select * from attendance.summary_absence;
+	select * from logs.records_changes;
+	select * from logs.record_change_log;
 
+	begin try
 	exec updateAttRecord 1, '13:25:00', @errMsg=@errMsg;
 	exec updateAttRecord 2, '13:31:26', @errMsg=@errMsg;
 	exec updateAttRecord 3, '13:11:10', @errMsg=@errMsg;
@@ -48,12 +62,15 @@ begin tran t0
 	-- duplicity test
 	exec updateAttRecord 14, '08:00:00', @errMsg=@errMsg;
 	exec updateAttRecord 15, '08:00:00', @errMsg=@errMsg;
-
+	end try
+	begin catch
+		select ERROR_MESSAGE();
+	end catch;
 	select * from attendance.summary;
 	select * from attendance.summary_bonuses;
 	select * from attendance.summary_absence;
 	select * from attendance.summary_public_holidays;
-/* if committed delete everyting from everywhere	
+/* if committed delete everyting from everywhere
 	delete from attendance.recorded_shifts where 1=1
 	delete from attendance.summary_absence where 1=1
 	delete from attendance.summary_bonuses where 1=1
@@ -66,8 +83,7 @@ begin tran t0
 	delete from logs.records_changes where 1=1;
 	delete from logs.record_change_log where 1=1;
 	*/
---rollback tran t0
-commit tran t0
+rollback tran t0
 	dbcc checkident ('attendance.attendance_record', reseed, 0);
 	dbcc checkident ('attendance.recorded_shifts', reseed, 0);
 	dbcc checkident ('attendance.recorded_absence', reseed, 0);
@@ -77,3 +93,6 @@ commit tran t0
 	dbcc checkident ('attendance.summary_public_holidays', reseed, 0);
 	dbcc checkident ('logs.records_changes', reseed, 0);
 	dbcc checkident ('logs.record_change_log', reseed, 0);
+begin tran t1
+	
+rollback tran t1
