@@ -8,6 +8,7 @@ create proc getAttendanceSummaryOfUser
 @monthAtt int = 0,
 @errMsg varchar(255) output
 as
+	set datefirst 1;
 	begin try
 		select asu.hours_worked_month [Worked together], asu.bonus_hours_month[Bonus hours], asu.hours_absent_month[Absences together]
 			from attendance.attusr au
@@ -25,6 +26,7 @@ create proc getMonthlyAttendanceOfUser
 @monthAtt int=0, -- cannot initialize by functional expression
 @errMsg varchar(255) output
 as
+	set datefirst 1;
 	begin try
 		if(@monthAtt = 0)
 		begin
@@ -46,6 +48,7 @@ create proc getMonthlyBonusOfUser
 @monthAtt int=0, -- cannot initialize by functional expression
 @errMsg varchar(255) output
 as
+	set datefirst 1;									
 	select bon.descr [Bonus], sum(sb.bonus_hours) [Hours together]
 			from attendance.attusr au
 			join attendance.attendance_record ar on ar.userLogin=au.ulogin
