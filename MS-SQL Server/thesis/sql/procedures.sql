@@ -291,7 +291,6 @@ as
 								where ar.record_id=@recId);
 		if(@checkDifference = @expectedWorkedHours)
 		begin
-			exec logRecordChange @recId, @errMsg out;
 			update #update_flag set flag=1;
 			update attendance.attendance_record
 			 -- implicit cast to real
@@ -309,7 +308,6 @@ as
 		begin
 			set @workedHours = (select top 1 (DATEDIFF(minute, [from], @leaveTime)/60.0) - 0.5
 								from attendance.attendance_record where record_id=@recId);
-			exec logRecordChange @recId, @errMsg out;
 			update #update_flag set flag=1;
 			update attendance.attendance_record
 			 -- implicit cast to real
