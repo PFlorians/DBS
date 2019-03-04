@@ -3,7 +3,7 @@
 
 -- this procedure is a complex view of user's attendance
 -- Data read procedures go here
-create proc getAttendanceSummaryOfUser
+ALTER proc getAttendanceSummaryOfUser
 @ulogin varchar(40),
 @monthAtt int = 0,
 @errMsg varchar(255) output
@@ -21,7 +21,22 @@ as
 	end catch;
 go
 -- this procedure is a complex view of user's attendance
-create proc getMonthlyAttendanceOfUser
+ALTER proc getMonthlyAbsenceOfUser
+@ulogin varchar(40),
+@monthAtt int=0, -- cannot initialize by functional expression
+@errMsg varchar(255) output
+as
+	set datefirst 1;
+	select absc.descr [Absence], sum(sab.hours_absent) [Hours together]
+			from attendance.attusr au
+			join attendance.attendance_record ar on ar.userLogin=au.ulogin
+			join attendance.summary asu on asu.record_id=ar.record_id
+			join attendance.summary_absence sab on sab.summary_id=asu.summary_id
+			join attendance.absence absc on absc.[type]=sab.absence_type
+			where au.ulogin = @ulogin and DATEPART(month, ar.day)=@monthAtt
+			group by absc.descr;
+go
+ALTER proc getMonthlyAttendanceOfUser
 @ulogin varchar(40),
 @monthAtt int=0, -- cannot initialize by functional expression
 @errMsg varchar(255) output
@@ -42,21 +57,19 @@ as
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
 	end catch;
+
 go
-create proc getMonthlyBonusOfUser
+ALTER proc getMonthlyBonusOfUser
 @ulogin varchar(40),
 @monthAtt int=0, -- cannot initialize by functional expression
 @errMsg varchar(255) output
 as
-	set datefirst 1;									
+	set datefirst 1;
 	select bon.descr [Bonus], sum(sb.bonus_hours) [Hours together]
 			from attendance.attusr au
 			join attendance.attendance_record ar on ar.userLogin=au.ulogin
 			join attendance.summary asu on asu.record_id=ar.record_id
 			join attendance.summary_bonuses sb on sb.summary_id = asu.summary_id
-			join attendance.summary_public_holidays sph on sph.summary_id=asu.summary_id
-			join attendance.summary_absence sab on sab.summary_id=asu.summary_id
-			join attendance.recorded_shifts rs on rs.record_id=ar.record_id
 			join attendance.bonus as bon on bon.bonus_id=sb.bonus_id
-			where au.ulogin like 'pflorian' and DATEPART(month, ar.day)=2
+			where au.ulogin = @ulogin and DATEPART(month, ar.day)=@monthAtt
 			group by bon.descr;
