@@ -8,6 +8,7 @@ alter proc determineEmergency
 @lastDate date,
 @errMsg varchar(255) output
 as
+	set datefirst 1;
 	begin try
 		declare @monthlyHours real;
 		declare @emergencyPresent bit;
@@ -64,6 +65,7 @@ alter proc determineOvertime
 @errMsg varchar(255) output,
 @overtimePresent real output
 as
+	set datefirst 1;															
 	begin try
 		declare @overtime real;
 		declare @monthlyHours real;
@@ -118,6 +120,7 @@ alter proc determineBonus
 @hours_worked_day real,
 @errMsg varchar(255) output
 as
+	set datefirst 1;														
 	begin try
 		declare @monthlyHours real;
 		
@@ -179,6 +182,7 @@ alter proc determineAbsence
 @lastRecId int,
 @errMsg varchar(255) output
 as
+	set datefirst 1;														
 	begin try
 		declare @monthlyHours real;
 		declare @absenceLength real;
@@ -215,7 +219,7 @@ create proc fullCheck
 as
 	declare @monthlyHours real;
 	declare @overtimePresent real;
-
+	set datefirst 1;
 	set @overtimePresent =0.0;
 	begin try
 		if(@summaryCreated is not null)
@@ -294,6 +298,7 @@ alter proc absenceChecker
 @absenceType varchar(4),
 @errMsg varchar(255) output
 as
+	set datefirst 1;						 
 	begin try
 		if(@summaryCreated is not null)
 		begin
@@ -375,7 +380,7 @@ as
 	declare @expectedWorkTime real;
 	declare @absenceType varchar(4);
 	declare @overtimePresent real;
-
+	set datefirst 1;
 	set @overtimePresent =0.0;
 	begin try
 		--verify if a summary for a given user in a given month's records exists
@@ -438,7 +443,7 @@ as
 	declare @lastRecId int;
 	declare @errMsg varchar(255);
 	declare @logTime time;
-
+	
 	set @insDate = (select top 1 [day] from inserted);
 	set @ulogin = (select top 1 userlogin from inserted);
 	set @hours_worked_day = (select top 1 hours_worked_day from inserted);
