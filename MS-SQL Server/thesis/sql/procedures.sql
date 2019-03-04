@@ -75,58 +75,65 @@ as
 			begin
 				update attendance.attendance_record
 					set userLogin = @ulogin, [from] = @from, until=null, [day] = @day
-					where record_id=@recordId;
-				exec logRecordChange @recordId, @errMsg out;--log this change
+					where record_id=@existingRecId;
+				exec logRecordChange @existingRecId, @errMsg out;--log this change
 				if(@errMsg is not null)
 				begin
 					;
 					throw 50122, @errMsg, 1;
 				end;
+				-- update dependent entities
+				if((@absenceType not like '') and (@shift like 'VOLN')) -- means user absent
+				begin
+					--update instead
+					update attendance.recorded_shifts
+						set shifttype=@shift
+						where record_id=@existingRecId;
+					update attendance.recorded_absence
+						set [type]=@absenceType, absence_length=@absenceLength
+						where record_id=@existingRecId;
+				end;
+				else if((@absenceType like '') and (@shift like 'VOLN')) -- means user doesn't work
+				begin
+					update attendance.recorded_shifts
+						set shifttype=@shift
+						where record_id=@existingRecId;
+				end;
+				else -- means regular work
+				begin
+					update attendance.recorded_shifts
+						set shifttype = @shift
+						where record_id=@existingRecId;
+				end;
 			end;
-			else
+			else -- need to insert, no update
 			begin
 				insert into attendance.attendance_record(userLogin, [from], hours_worked_day, [day])
 					values (@ulogin, @from, 0, @day);
+				set @recordId = IDENT_CURRENT('attendance.attendance_record');
 				exec logRecordChange @recordId, @errMsg out;--log change
 				if(@errMsg is not null)
 				begin
 					;
 					throw 50122, @errMsg, 1;
 				end;
-			end;
-			if(@errMsg is not null)
-			begin
-				print @errMsg;
-				throw 50111, @errMsg, 50111;
-			end;
-			else
-			begin
-				if(@existingRecId = -1)
+				-- insert into dependent entities
+				if((@absenceType not like '') and (@shift like 'VOLN')) -- means user absent
 				begin
-					set @recordId = IDENT_CURRENT('attendance.attendance_record');
-					exec logRecordChange @recordId, @errMsg out;
-					if(@errMsg is not null)
-					begin
-						;
-						throw 50122, @errMsg, 1;
-					end;
-					if((@absenceType not like '') and (@shift like 'VOLN')) -- means user absent
-					begin
-						insert into attendance.recorded_shifts(record_id, shifttype)
-							values (@recordId, @shift);
-						insert into attendance.recorded_absence(record_id, [type], absence_length)
-							values (@recordId, @absenceType, @absenceLength);
-					end;
-					else if((@absenceType like '') and (@shift like 'VOLN')) -- means user doesn't work
-					begin
-						insert into attendance.recorded_shifts(record_id, shifttype)
-							values (@recordId, @shift);
-					end;
-					else -- means regular work
-					begin
-						insert into attendance.recorded_shifts(record_id, shifttype)
-							values (@recordId, @shift);
-					end;
+					insert into attendance.recorded_shifts(record_id, shifttype)
+						values (@recordId, @shift);
+					insert into attendance.recorded_absence(record_id, [type], absence_length)
+						values (@recordId, @absenceType, @absenceLength);
+				end;
+				else if((@absenceType like '') and (@shift like 'VOLN')) -- means user doesn't work
+				begin
+					insert into attendance.recorded_shifts(record_id, shifttype)
+						values (@recordId, @shift);
+				end;
+				else -- means regular work
+				begin
+					insert into attendance.recorded_shifts(record_id, shifttype)
+						values (@recordId, @shift);
 				end;
 			end;
 		end;
@@ -137,60 +144,67 @@ as
 			begin
 				update attendance.attendance_record
 					set userLogin = @ulogin, [from] = @from, until=null, [day] = @day
-					where record_id=@recordId;
-				exec logRecordChange @recordId, @errMsg out;--log change
+					where record_id=@existingRecId;
+				exec logRecordChange @existingRecId, @errMsg out;--log this change
 				if(@errMsg is not null)
 				begin
 					;
 					throw 50122, @errMsg, 1;
 				end;
+				-- update dependent entities
+				if((@absenceType not like '') and (@shift like 'VOLN')) -- means user absent
+				begin
+					--update instead
+					update attendance.recorded_shifts
+						set shifttype=@shift
+						where record_id=@existingRecId;
+					update attendance.recorded_absence
+						set [type]=@absenceType, absence_length=@absenceLength
+						where record_id=@existingRecId;
+				end;
+				else if((@absenceType like '') and (@shift like 'VOLN')) -- means user doesn't work
+				begin
+					update attendance.recorded_shifts
+						set shifttype=@shift
+						where record_id=@existingRecId;
+				end;
+				else -- means regular work
+				begin
+					update attendance.recorded_shifts
+						set shifttype = @shift
+						where record_id=@existingRecId;
+				end;
 			end;
-			else
+			else -- need to insert, no update
 			begin
 				insert into attendance.attendance_record(userLogin, [from], hours_worked_day, [day])
 					values (@ulogin, @from, 0, @day);
+				set @recordId = IDENT_CURRENT('attendance.attendance_record');
 				exec logRecordChange @recordId, @errMsg out;--log change
 				if(@errMsg is not null)
 				begin
 					;
 					throw 50122, @errMsg, 1;
 				end;
-			end;
-			if(@errMsg is not null)
-			begin
-				print @errMsg;
-				throw 50112, @errMsg, 50112;
-			end;
-			else
-			begin
-				if(@existingRecId = -1)
+				-- insert into dependent entities
+				if((@absenceType not like '') and (@shift like 'VOLN')) -- means user absent
 				begin
-					set @recordId = IDENT_CURRENT('attendance.attendance_record');
-					exec logRecordChange @recordId, @errMsg out;
-					if(@errMsg is not null)
-					begin
-						;
-						throw 50122, @errMsg, 1;
-					end;
-					if((@absenceType not like '') and (@shift like 'VOLN')) -- means user absent
-					begin
-						insert into attendance.recorded_shifts(record_id, shifttype)
-							values (@recordId, @shift);
-						insert into attendance.recorded_absence(record_id, [type], absence_length)
-							values (@recordId, @absenceType, @absenceLength);
-					end;
-					else if((@absenceType like '') and (@shift like 'VOLN')) -- means user doesn't work
-					begin
-						insert into attendance.recorded_shifts(record_id, shifttype)
-							values (@recordId, @shift);
-					end;
-					else -- means regular work
-					begin
-						insert into attendance.recorded_shifts(record_id, shifttype)
-							values (@recordId, @shift);
-					end;
+					insert into attendance.recorded_shifts(record_id, shifttype)
+						values (@recordId, @shift);
+					insert into attendance.recorded_absence(record_id, [type], absence_length)
+						values (@recordId, @absenceType, @absenceLength);
 				end;
-			end;--att recording ends here
+				else if((@absenceType like '') and (@shift like 'VOLN')) -- means user doesn't work
+				begin
+					insert into attendance.recorded_shifts(record_id, shifttype)
+						values (@recordId, @shift);
+				end;
+				else -- means regular work
+				begin
+					insert into attendance.recorded_shifts(record_id, shifttype)
+						values (@recordId, @shift);
+				end;
+			end;
 		end;
 	end;
 	else
@@ -250,6 +264,7 @@ as
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
 		set @recordId = -1; --erroneous state
+		throw 50112, @errMsg, 1;
 	end catch;
 go
 --updates attendance record in a standard manner -> that is automatic - user changes are done
