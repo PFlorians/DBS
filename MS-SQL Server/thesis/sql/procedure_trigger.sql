@@ -293,12 +293,12 @@ alter proc absenceChecker
 @hours_worked_day real,
 @lastRecId int,
 @summaryCreated int,
-@lastShift varchar(8), 
+@lastShift varchar(8),
 @expectedWorkTime real,
 @absenceType varchar(4),
 @errMsg varchar(255) output
 as
-	set datefirst 1;						 
+	set datefirst 1; -- needs to be done everywhere
 	begin try
 		if(@summaryCreated is not null)
 		begin
@@ -307,6 +307,7 @@ as
 			if(@errMsg is not null)
 			begin
 				print 'Error determining absence absenceChecker 1: ' + @errMsg;
+				throw 50070, @errMsg, 7;
 			end;
 		end;
 		else
@@ -318,6 +319,7 @@ as
 			if(@errMsg is not null)
 			begin
 				print 'Error determining absence absenceChecker 2: ' + @errMsg;
+				throw 50080, @errMsg, 8;
 			end;
 		end;
 	end try
