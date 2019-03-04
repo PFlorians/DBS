@@ -1,4 +1,5 @@
--- test scenarios in the form of transactions
+-- testing goes here
+
 begin tran t0
 	declare @errMsg varchar(255);
 	declare @recId int;
@@ -21,8 +22,9 @@ begin tran t0
 	exec newAttendanceRecord 'pflorian', '00:00:00', 'VOLN','0100',8,'12.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
 	exec newAttendanceRecord 'pflorian', '00:00:00', 'VOLN','0100',8,'13.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
 	exec newAttendanceRecord 'pflorian', '00:00:00', 'VOLN','0300',8,'14.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
+	-- duplicity test
 	exec newAttendanceRecord 'pflorian', '00:00:00', 'VOLN','0310',8,'14.02.2019', 1, @errMsg=@errMsg, @recordId=@recId;
-	
+
 	select * from attendance.attendance_record;
 	select * from attendance.recorded_shifts;
 	select * from attendance.recorded_absence;
@@ -43,15 +45,29 @@ begin tran t0
 	exec updateAttRecord 12, '08:00:00', @errMsg=@errMsg;
 	exec updateAttRecord 13, '08:00:00', @errMsg=@errMsg;
 	exec updateAttRecord 14, '08:00:00', @errMsg=@errMsg;
+	-- duplicity test
+	exec updateAttRecord 14, '08:00:00', @errMsg=@errMsg;
 	exec updateAttRecord 15, '08:00:00', @errMsg=@errMsg;
 
 	select * from attendance.summary;
 	select * from attendance.summary_bonuses;
 	select * from attendance.summary_absence;
 	select * from attendance.summary_public_holidays;
-	
-rollback tran t0;
---identity reset
+/* if committed delete everyting from everywhere	
+	delete from attendance.recorded_shifts where 1=1
+	delete from attendance.summary_absence where 1=1
+	delete from attendance.summary_bonuses where 1=1
+	delete from attendance.summary_public_holidays where 1=1
+	delete from attendance.summary where 1=1
+	delete from attendance.recorded_absence where 1=1;
+
+	delete from attendance.attendance_record where 1=1;
+
+	delete from logs.records_changes where 1=1;
+	delete from logs.record_change_log where 1=1;
+	*/
+--rollback tran t0
+commit tran t0
 	dbcc checkident ('attendance.attendance_record', reseed, 0);
 	dbcc checkident ('attendance.recorded_shifts', reseed, 0);
 	dbcc checkident ('attendance.recorded_absence', reseed, 0);
@@ -59,3 +75,5 @@ rollback tran t0;
 	dbcc checkident ('attendance.summary_bonuses', reseed, 0);
 	dbcc checkident ('attendance.summary_absence', reseed, 0);
 	dbcc checkident ('attendance.summary_public_holidays', reseed, 0);
+	dbcc checkident ('logs.records_changes', reseed, 0);
+	dbcc checkident ('logs.record_change_log', reseed, 0);
