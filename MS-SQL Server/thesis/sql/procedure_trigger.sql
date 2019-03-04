@@ -180,30 +180,41 @@ alter proc determineAbsence
 @summaryId int,
 @lastDate date,
 @lastRecId int,
+@updateAbsenceSummaryFlag bit=0,
 @errMsg varchar(255) output
 as
-	set datefirst 1;														
+	set datefirst 1;
 	begin try
 		declare @monthlyHours real;
 		declare @absenceLength real;
-		if((@lastShift like 'VOLN') and (@absenceType is not null)) 
+		if((@lastShift like 'VOLN') and (@absenceType is not null))
 		begin
 			set @absenceLength = (select top 1 absence_length from attendance.recorded_absence where record_id=@lastRecId order by record_id desc);
-			insert into attendance.summary_absence(absence_type, summary_id, day_of_absence, hours_absent)
-				values(@absenceType, @summaryId, @lastDate, @absenceLength);
-			
+			if(@updateAbsenceSummaryFlag = 1)
+			begin
+				update attendance.summary_absence
+					set absence_type=@absenceType, summary_id=@summaryId, day_of_absence=@lastDate, hours_absent=@absenceLength
+					where id=IDENT_CURRENT('attendance.summary_absence'); -- updating the last record, no insertion this time
+			end
+			else
+			begin
+				insert into attendance.summary_absence(absence_type, summary_id, day_of_absence, hours_absent)
+					values(@absenceType, @summaryId, @lastDate, @absenceLength);
+			end;
+
 			--update overall absence
 			set @monthlyHours = (select top 1 hours_absent_month from attendance.summary
 								where summary_id=@summaryId);
 			set @monthlyHours = @monthlyHours + @absenceLength;
-				
-			update attendance.summary 
+
+			update attendance.summary
 				set hours_absent_month = @monthlyHours
-				where summary_id = @summaryId;	
+				where summary_id = @summaryId;
 		end;
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
+		throw 51007, @errMsg, 1;
 	end catch;
 go
 create proc fullCheck
@@ -296,6 +307,7 @@ alter proc absenceChecker
 @lastShift varchar(8),
 @expectedWorkTime real,
 @absenceType varchar(4),
+@updateAbsenceSummaryFlag bit=0,
 @errMsg varchar(255) output
 as
 	set datefirst 1; -- needs to be done everywhere
@@ -303,7 +315,14 @@ as
 		if(@summaryCreated is not null)
 		begin
 		-- determine if absence
-			exec determineAbsence @lastShift, @absenceType, @summaryCreated, @lastDate, @lastRecId, @errMsg=@errMsg;
+			if(@updateAbsenceSummaryFlag=1)
+			begin 
+				exec determineAbsence @lastShift, @absenceType, @summaryCreated, @lastDate, @lastRecId, 1, @errMsg=@errMsg;
+			end;
+			else
+			begin
+				exec determineAbsence @lastShift, @absenceType, @summaryCreated, @lastDate, @lastRecId, 0, @errMsg=@errMsg;
+			end;
 			if(@errMsg is not null)
 			begin
 				print 'Error determining absence absenceChecker 1: ' + @errMsg;
@@ -315,7 +334,14 @@ as
 			insert into attendance.summary(record_id, hours_worked_month, hours_absent_month, bonus_hours_month)
 				values(@lastRecId, @hours_worked_day, 0, 0);
 			set @summaryCreated = IDENT_CURRENT('attendance.summary');
-			exec determineAbsence @lastShift, @absenceType, @summaryCreated, @lastDate, @lastRecId, @errMsg=@errMsg;
+			if(@updateAbsenceSummaryFlag=1)
+			begin 
+				exec determineAbsence @lastShift, @absenceType, @summaryCreated, @lastDate, @lastRecId, 1, @errMsg=@errMsg;
+			end;
+			else
+			begin
+				exec determineAbsence @lastShift, @absenceType, @summaryCreated, @lastDate, @lastRecId, 0, @errMsg=@errMsg;
+			end;
 			if(@errMsg is not null)
 			begin
 				print 'Error determining absence absenceChecker 2: ' + @errMsg;
@@ -325,6 +351,7 @@ as
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
+		throw 51008, @errMsg, 1;
 	end catch;
 go
 -- this is an initializer function called from trigger, which is called on update automatically
