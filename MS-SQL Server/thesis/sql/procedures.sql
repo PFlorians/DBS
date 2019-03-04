@@ -19,12 +19,12 @@ as
 		else -- otherwise erroneous state
 		begin
 			print 'Error';
-			throw 1, 'Error, user login already exists in database', 1;
+			throw 50100, 'Error, user login already exists in database', 1;
 		end;
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE(); --error caught here
-		throw 1, @errMsg, 1;
+		throw 50100, @errMsg, 1;
 	end catch;
 go
 -- check if user exists 
