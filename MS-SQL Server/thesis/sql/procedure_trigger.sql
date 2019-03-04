@@ -392,15 +392,15 @@ as
 	declare @lastRecId int;
 	declare @errMsg varchar(255);
 	declare @logTime time;
-	
+
 	set @insDate = (select top 1 [day] from inserted);
 	set @ulogin = (select top 1 userlogin from inserted);
 	set @hours_worked_day = (select top 1 hours_worked_day from inserted);
 	set @lastRecId = (select top 1 record_id from inserted);
-	
+
 	if((select top 1 until from inserted) is not null) -- if null then it could be an update of arrival
 	begin
-		
+
 		if((select top 1 flag from #update_flag)=0)
 		begin
 			set @logTime = (select top 1 convert(time, rcl.change_timestamp, 101) from logs.record_change_log rcl
@@ -412,7 +412,7 @@ as
 				exec summaryUpdater @ulogin, @insDate, @hours_worked_day, @lastRecId, @errMsg=@errMsg;
 			end;
 			else
-			begin 
+			begin
 				select 'Cannot rewrite the attendance record';
 				throw 50011, 'Cannot rewrite the attendance record', 1;
 			end;
@@ -424,6 +424,7 @@ as
 	end;
 	if(@errMsg is not null)
 	begin
-		print 'Updater trigger reporting failure: ' + @errMsg;
+		;
+		throw 50012, @errMsg, 1;
 	end;
 go
