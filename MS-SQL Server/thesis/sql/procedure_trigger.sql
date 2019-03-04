@@ -327,47 +327,6 @@ as
 		set @errMsg = ERROR_MESSAGE();
 	end catch;
 go
---checking if absence -> separate branch
-alter proc absenceChecker
-@ulogin varchar(40),
-@lastDate date,
-@hours_worked_day real,
-@lastRecId int,
-@summaryCreated int,
-@lastShift varchar(8), 
-@expectedWorkTime real,
-@absenceType varchar(4),
-@errMsg varchar(255) output
-as
-	set datefirst 1; -- needs to be done everywhere
-	begin try
-		if(@summaryCreated is not null)
-		begin
-		-- determine if absence
-			exec determineAbsence @lastShift, @absenceType, @summaryCreated, @lastDate, @lastRecId, @errMsg=@errMsg;
-			if(@errMsg is not null)
-			begin
-				print 'Error determining absence absenceChecker 1: ' + @errMsg;
-				throw 7, @errMsg, 7;
-			end;
-		end;
-		else
-		begin
-			insert into attendance.summary(record_id, hours_worked_month, hours_absent_month, bonus_hours_month)
-				values(@lastRecId, @hours_worked_day, 0, 0);
-			set @summaryCreated = IDENT_CURRENT('attendance.summary');
-			exec determineAbsence @lastShift, @absenceType, @summaryCreated, @lastDate, @lastRecId, @errMsg=@errMsg;
-			if(@errMsg is not null)
-			begin
-				print 'Error determining absence absenceChecker 2: ' + @errMsg;
-				throw 8, @errMsg, 8;
-			end;
-		end;
-	end try
-	begin catch
-		set @errMsg = ERROR_MESSAGE();
-	end catch;
-go
 -- this is an initializer function called from trigger, which is called on update automatically
 alter proc summaryUpdater
 @ulogin varchar(40),
