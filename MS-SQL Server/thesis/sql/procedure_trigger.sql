@@ -187,19 +187,34 @@ as
 	begin try
 		declare @monthlyHours real;
 		declare @absenceLength real;
+		declare @lastAbsentDayInserted tinyint;
+
 		if((@lastShift like 'VOLN') and (@absenceType is not null))
 		begin
 			set @absenceLength = (select top 1 absence_length from attendance.recorded_absence where record_id=@lastRecId order by record_id desc);
 			if(@updateAbsenceSummaryFlag = 1)
 			begin
+				select 'determined';
 				update attendance.summary_absence
 					set absence_type=@absenceType, summary_id=@summaryId, day_of_absence=@lastDate, hours_absent=@absenceLength
 					where id=IDENT_CURRENT('attendance.summary_absence'); -- updating the last record, no insertion this time
 			end
 			else
 			begin
-				insert into attendance.summary_absence(absence_type, summary_id, day_of_absence, hours_absent)
-					values(@absenceType, @summaryId, @lastDate, @absenceLength);
+				set @lastAbsentDayInserted = (select top 1 DATEPART(day, day_of_absence) from attendance.summary_absence 
+												where summary_id=@summaryId
+												order by id desc);--get the last one by ID
+				if(@lastAbsentDayInserted = DATEPART(day, @lastDate))
+				begin --if true then we must update not insert, otherwise duplicity
+					update attendance.summary_absence
+					set absence_type=@absenceType, summary_id=@summaryId, day_of_absence=@lastDate, hours_absent=@absenceLength
+					where id=IDENT_CURRENT('attendance.summary_absence'); -- updating the last record, no insertion this time
+				end;
+				else
+				begin
+					insert into attendance.summary_absence(absence_type, summary_id, day_of_absence, hours_absent)
+						values(@absenceType, @summaryId, @lastDate, @absenceLength);
+				end;
 			end;
 
 			--update overall absence
@@ -317,10 +332,11 @@ as
 		-- determine if absence
 			if(@updateAbsenceSummaryFlag=1)
 			begin 
+				select 'checked';
 				exec determineAbsence @lastShift, @absenceType, @summaryCreated, @lastDate, @lastRecId, 1, @errMsg=@errMsg;
 			end;
 			else
-			begin
+			begin								
 				exec determineAbsence @lastShift, @absenceType, @summaryCreated, @lastDate, @lastRecId, 0, @errMsg=@errMsg;
 			end;
 			if(@errMsg is not null)
@@ -336,6 +352,7 @@ as
 			set @summaryCreated = IDENT_CURRENT('attendance.summary');
 			if(@updateAbsenceSummaryFlag=1)
 			begin 
+			select 'checked';
 				exec determineAbsence @lastShift, @absenceType, @summaryCreated, @lastDate, @lastRecId, 1, @errMsg=@errMsg;
 			end;
 			else
@@ -392,6 +409,7 @@ as
 		begin
 			if(@updateAbsenceSummaryFlag = 1)
 			begin
+				select 'updater';
 				exec absenceChecker @ulogin, @lastDate, @hours_worked_day, @lastRecId, @summaryCreated, @lastShift, @expectedWorkTime, @absenceType, 1, @errMsg=@errMsg;
 			end;
 			else
@@ -447,17 +465,18 @@ as
 								where ar.record_id=@lastRecId);
 			if(abs(datediff(second, convert(time, getdate(), 101), @logTime))<=180)
 			begin
-				exec summaryUpdater @ulogin, @insDate, @hours_worked_day, @lastRecId, @errMsg=@errMsg;
+				select 'trigga';
+				exec summaryUpdater @ulogin, @insDate, @hours_worked_day, @lastRecId, 1, @errMsg=@errMsg;
 			end;
 			else
 			begin
-				select 'Cannot rewrite the attendance record';
+				;
 				throw 50011, 'Cannot rewrite the attendance record', 1;
 			end;
 		end;
 		else
 		begin
-			exec summaryUpdater @ulogin, @insDate, @hours_worked_day, @lastRecId, @errMsg=@errMsg;
+			exec summaryUpdater @ulogin, @insDate, @hours_worked_day, @lastRecId, 0, @errMsg=@errMsg;
 		end;
 	end;
 	if(@errMsg is not null)
