@@ -12,9 +12,9 @@ as
 	begin try
 		if(not exists(select 1 from attendance.attusr where ulogin=@ulogin)) -- proceed with creation
 		begin
-			exec logUserChange @ulogin, @errMsg out;
 			insert into attendance.attusr(ulogin, user_typeid, eid, [name], lastname, email)
 			values(@ulogin, @user_typeId, @eid, @name, @lastname, @email);
+			exec logUserChange @ulogin, @errMsg out;
 		end;
 		else -- otherwise erroneous state
 		begin
