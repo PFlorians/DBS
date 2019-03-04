@@ -399,18 +399,6 @@ as
 		-- deciding whether this is an absence or not
 		-- if yes, then there can be no bonuses, just record absence, thats it
 		-- if something is a weekend, do nothing
-		if(@expectedWorkTime <> 0)
-		begin
-			print 'prva';
-		end;
-		if(@lastShift not like 'VOLN')
-		begin
-			print 'druha';
-		end;
-		if(@absenceType is null)
-		begin 
-			print 'tretia';
-		end;
 		if(@expectedWorkTime = 0.0 and @hours_worked_day <> 0.0 and @lastShift like 'VOLN' and @absenceType not like '')
 		begin
 			exec absenceChecker @ulogin, @lastDate, @hours_worked_day, @lastRecId, @summaryCreated, @lastShift, @expectedWorkTime, @absenceType, @errMsg=@errMsg;
