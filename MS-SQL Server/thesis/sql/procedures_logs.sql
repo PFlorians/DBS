@@ -5,6 +5,7 @@ alter proc logUserChange
 @ulogin varchar(40),
 @errMsg varchar(255) output
 as
+	set datefirst 1;
 	begin try
 		if(@ulogin in (select ulogin from attendance.attusr))
 		begin
@@ -28,6 +29,7 @@ alter proc logRecordChange
 @recId int,
 @errMsg varchar(255) output
 as
+	set datefirst 1;					       	
 	begin try
 		if(@recId in (select record_id from attendance.attendance_record))
 		begin
