@@ -7,8 +7,7 @@ alter proc determineEmergency
 @summaryId int,
 @lastDate date,
 @errMsg varchar(255) output
-as	
-	set datefirst 1; -- needs to be done everywhere
+as
 	begin try
 		declare @monthlyHours real;
 		declare @emergencyPresent bit;
@@ -56,7 +55,6 @@ as
 		set @errMsg = ERROR_MESSAGE();
 	end catch;
 go
---this determines whether an overtime was in place
 alter proc determineOvertime
 @hours_worked_day real,
 @expectedWorkTime real,
@@ -66,7 +64,6 @@ alter proc determineOvertime
 @errMsg varchar(255) output,
 @overtimePresent real output
 as
-	set datefirst 1; -- needs to be done everywhere
 	begin try
 		declare @overtime real;
 		declare @monthlyHours real;
@@ -114,7 +111,6 @@ as
 		set @errMsg = ERROR_MESSAGE();
 	end catch;
 go
--- this is to determine if bonus is supposed to be given to user
 alter proc determineBonus
 @lastShift varchar(8),
 @lastDate date,
@@ -122,7 +118,6 @@ alter proc determineBonus
 @hours_worked_day real,
 @errMsg varchar(255) output
 as
-	set datefirst 1; -- needs to be done everywhere
 	begin try
 		declare @monthlyHours real;
 		
@@ -176,7 +171,6 @@ as
 		set @errMsg = ERROR_MESSAGE();
 	end catch;
 go
--- determines if user was absent
 alter proc determineAbsence
 @lastShift varchar(8),
 @absenceType varchar(4),
@@ -185,7 +179,6 @@ alter proc determineAbsence
 @lastRecId int,
 @errMsg varchar(255) output
 as
-	set datefirst 1; -- needs to be done everywhere
 	begin try
 		declare @monthlyHours real;
 		declare @absenceLength real;
@@ -209,8 +202,7 @@ as
 		set @errMsg = ERROR_MESSAGE();
 	end catch;
 go
--- full check sequence branch
-alter proc fullCheck
+create proc fullCheck
 @ulogin varchar(40),
 @lastDate date,
 @hours_worked_day real,
@@ -225,7 +217,6 @@ as
 	declare @overtimePresent real;
 
 	set @overtimePresent =0.0;
-	set datefirst 1; -- needs to be done everywhere
 	begin try
 		if(@summaryCreated is not null)
 		begin
@@ -241,7 +232,6 @@ as
 			if(@errMsg is not null)
 			begin
 				print 'Error determining emergency: ' + @errMsg;
-				throw 1, @errMsg, 1;
 			end;
 			else
 			begin
@@ -251,7 +241,6 @@ as
 				if(@errMsg is not null)
 				begin
 					print 'Error determining overtime: ' + @errMsg;
-					throw 2, @errMsg, 2;
 				end;
 			end;
 			-- determine any other bonus
@@ -259,7 +248,6 @@ as
 			if(@errMsg is not null)
 			begin
 				print 'Error determining bonuses: ' + @errMsg;
-				throw 3, @errMsg, 3;
 			end;
 		end; -- if summary existed flow ends here
 		else -- if summary doesn't yet exists, flow starts here
@@ -272,7 +260,6 @@ as
 			if(@errMsg is not null)
 			begin
 				print 'Error determining emergency 2: ' + @errMsg;
-				throw 4, @errMsg, 4;
 			end;
 			else
 			begin
@@ -282,7 +269,6 @@ as
 				if(@errMsg is not null)
 				begin
 					print 'Error determining overtime 2: ' + @errMsg;
-					throw 5, @errMsg, 5;
 				end;
 			end;
 			-- determine any other bonus
@@ -290,7 +276,43 @@ as
 			if(@errMsg is not null)
 			begin
 				print 'Error determining bonuses 2: ' + @errMsg;
-				throw 6, @errMsg, 6;
+			end;
+		end;
+	end try
+	begin catch
+		set @errMsg = ERROR_MESSAGE();
+	end catch;
+go
+alter proc absenceChecker
+@ulogin varchar(40),
+@lastDate date,
+@hours_worked_day real,
+@lastRecId int,
+@summaryCreated int,
+@lastShift varchar(8), 
+@expectedWorkTime real,
+@absenceType varchar(4),
+@errMsg varchar(255) output
+as
+	begin try
+		if(@summaryCreated is not null)
+		begin
+		-- determine if absence
+			exec determineAbsence @lastShift, @absenceType, @summaryCreated, @lastDate, @lastRecId, @errMsg=@errMsg;
+			if(@errMsg is not null)
+			begin
+				print 'Error determining absence absenceChecker 1: ' + @errMsg;
+			end;
+		end;
+		else
+		begin
+			insert into attendance.summary(record_id, hours_worked_month, hours_absent_month, bonus_hours_month)
+				values(@lastRecId, @hours_worked_day, 0, 0);
+			set @summaryCreated = IDENT_CURRENT('attendance.summary');
+			exec determineAbsence @lastShift, @absenceType, @summaryCreated, @lastDate, @lastRecId, @errMsg=@errMsg;
+			if(@errMsg is not null)
+			begin
+				print 'Error determining absence absenceChecker 2: ' + @errMsg;
 			end;
 		end;
 	end try
@@ -355,7 +377,6 @@ as
 	declare @overtimePresent real;
 
 	set @overtimePresent =0.0;
-	set datefirst 1; -- needs to be done everywhere
 	begin try
 		--verify if a summary for a given user in a given month's records exists
 		-- of so, no new shall be created, otherwise create a new one
@@ -373,13 +394,24 @@ as
 		-- deciding whether this is an absence or not
 		-- if yes, then there can be no bonuses, just record absence, thats it
 		-- if something is a weekend, do nothing
+		if(@expectedWorkTime <> 0)
+		begin
+			print 'prva';
+		end;
+		if(@lastShift not like 'VOLN')
+		begin
+			print 'druha';
+		end;
+		if(@absenceType is null)
+		begin 
+			print 'tretia';
+		end;
 		if(@expectedWorkTime = 0.0 and @hours_worked_day <> 0.0 and @lastShift like 'VOLN' and @absenceType not like '')
 		begin
 			exec absenceChecker @ulogin, @lastDate, @hours_worked_day, @lastRecId, @summaryCreated, @lastShift, @expectedWorkTime, @absenceType, @errMsg=@errMsg;
 			if(@errMsg is not null)
 			begin
 				print 'Error determining absence summaryChecker: ' + @errMsg;
-				throw 111, @errMsg, 111;
 			end;
 		end;
 		else if(@expectedWorkTime <> 0 and (@lastShift not like 'VOLN') and (@absenceType like '' or @absenceType is null))
@@ -388,7 +420,6 @@ as
 			if(@errMsg is not null)
 			begin
 				print 'Error determining absence summaryChecker - fullCheck: ' + @errMsg;
-				throw 222, @errMsg, 222;
 			end;	
 		end;
 	end try
@@ -406,14 +437,37 @@ as
 	declare @hours_worked_day real;
 	declare @lastRecId int;
 	declare @errMsg varchar(255);
-	set datefirst 1; -- needs to be done everywhere
+	declare @logTime time;
 
 	set @insDate = (select top 1 [day] from inserted);
 	set @ulogin = (select top 1 userlogin from inserted);
 	set @hours_worked_day = (select top 1 hours_worked_day from inserted);
 	set @lastRecId = (select top 1 record_id from inserted);
 	
-	exec summaryUpdater @ulogin, @insDate, @hours_worked_day, @lastRecId, @errMsg=@errMsg;
+	if((select top 1 until from inserted) is not null) -- if null then it could be an update of arrival
+	begin
+		
+		if((select top 1 flag from #update_flag)=0)
+		begin
+			set @logTime = (select top 1 convert(time, rcl.change_timestamp, 101) from logs.record_change_log rcl
+								join logs.records_changes as rc on rc.log_id=rcl.log_id
+								join attendance.attendance_record as ar on ar.record_id=rc.record_id
+								where ar.record_id=@lastRecId);
+			if(abs(datediff(second, convert(time, getdate(), 101), @logTime))<=180)
+			begin
+				exec summaryUpdater @ulogin, @insDate, @hours_worked_day, @lastRecId, @errMsg=@errMsg;
+			end;
+			else
+			begin 
+				select 'Cannot rewrite the attendance record';
+				throw 50011, 'Cannot rewrite the attendance record', 1;
+			end;
+		end;
+		else
+		begin
+			exec summaryUpdater @ulogin, @insDate, @hours_worked_day, @lastRecId, @errMsg=@errMsg;
+		end;
+	end;
 	if(@errMsg is not null)
 	begin
 		print 'Updater trigger reporting failure: ' + @errMsg;
