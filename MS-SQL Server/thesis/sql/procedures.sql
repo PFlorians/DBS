@@ -198,28 +198,23 @@ as
 		set @recordId = -1;
 		throw 50113, 'User or shift not found', 50113;
 	end;
-go-- this procedure inserts records to all tables given a specific parameters
--- Required parameters are as follows:
--- user login
--- shift type
--- beginning of work -> end should be handled by updater procedure
--- hours worked should be set to 0 upon initiation -> should be updated on check
+go
 alter proc newAttendanceRecord
 @ulogin varchar(40),
 @fromString varchar(40),
 @shift varchar(8),
 @absenceType varchar(4) = '',
 @absenceLength real = 0,
-@dayString varchar(40) = null, -- default 
+@dayString varchar(40) = null, -- default
 @override bit = 0, -- TESTING INPUT
-@errMsg varchar(255) output, 
+@errMsg varchar(255) output,
 @recordId int output
 as
 	declare @from time;
 	declare @day date;
-	set datefirst 1;									    
+	set datefirst 1;
 	begin try
-		if(OBJECT_ID('tempdb..#update_flag') is null)
+		if(OBJECT_ID('tempdb..#update_flag') is null) --indicates whether an update is to be done
 		begin
 			create table #update_flag(
 				flag bit default 0
@@ -257,7 +252,7 @@ as
 		set @recordId = -1; --erroneous state
 	end catch;
 go
---updates attendance record in a standard manner -> that is automatic - user changes are done 
+--updates attendance record in a standard manner -> that is automatic - user changes are done
 -- in a different manner
 -- should be called after new record creation was performed - user leaving workplace
 -- see associated insert trigger checking if the end of month is reached
@@ -273,7 +268,7 @@ as
 	declare @checkDifference real;
 	set datefirst 1;
 	begin try
-		if(OBJECT_ID('tempdb..#update_flag') is null)
+		if(OBJECT_ID('tempdb..#update_flag') is null) -- indicates whether an update is to be don
 		begin
 			create table #update_flag(
 				flag bit default 0
