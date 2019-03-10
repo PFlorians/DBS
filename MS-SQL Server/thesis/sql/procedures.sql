@@ -27,7 +27,7 @@ as
 		throw 50100, @errMsg, 1;
 	end catch;
 go
--- check if user exists 
+-- check if user exists
 alter proc userExists
 @ulogin varchar(40),
 @var bit output,
@@ -46,6 +46,7 @@ as
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
+		select xact_state();
 	end catch;
 go
 alter proc attRecInsertionSubroutine -- this must be called within try catch block
@@ -76,7 +77,7 @@ as
 				update attendance.attendance_record
 					set userLogin = @ulogin, [from] = @from, until=null, [day] = @day
 					where record_id=@existingRecId;
-				exec logRecordChange @existingRecId, @errMsg out;--log this change
+				exec logRecordChange @existingRecId, 2, @errMsg out;--log this change as update
 				if(@errMsg is not null)
 				begin
 					;
@@ -111,7 +112,7 @@ as
 				insert into attendance.attendance_record(userLogin, [from], hours_worked_day, [day])
 					values (@ulogin, @from, 0, @day);
 				set @recordId = IDENT_CURRENT('attendance.attendance_record');
-				exec logRecordChange @recordId, @errMsg out;--log change
+				exec logRecordChange @recordId, 1, @errMsg out;--log change
 				if(@errMsg is not null)
 				begin
 					;
@@ -145,7 +146,7 @@ as
 				update attendance.attendance_record
 					set userLogin = @ulogin, [from] = @from, until=null, [day] = @day
 					where record_id=@existingRecId;
-				exec logRecordChange @existingRecId, @errMsg out;--log this change
+				exec logRecordChange @existingRecId, 2, @errMsg out;--log this as update
 				if(@errMsg is not null)
 				begin
 					;
@@ -180,7 +181,7 @@ as
 				insert into attendance.attendance_record(userLogin, [from], hours_worked_day, [day])
 					values (@ulogin, @from, 0, @day);
 				set @recordId = IDENT_CURRENT('attendance.attendance_record');
-				exec logRecordChange @recordId, @errMsg out;--log change
+				exec logRecordChange @recordId, 1, @errMsg out;--log change
 				if(@errMsg is not null)
 				begin
 					;
@@ -210,7 +211,9 @@ as
 	else
 	begin
 		set @recordId = -1;
+		set @errMsg = ERROR_MESSAGE();
 		throw 50113, 'User or shift not found', 50113;
+		select XACT_STATE();
 	end;
 go
 alter proc newAttendanceRecord
@@ -245,7 +248,7 @@ as
 			set @logTime = (select top 1 convert(time, rcl.change_timestamp, 101) from logs.record_change_log rcl
 							join logs.records_changes as rc on rc.log_id=rcl.log_id
 							join attendance.attendance_record as ar on ar.record_id=rc.record_id
-							where ar.record_id=@recordId);
+							where ar.record_id=@recordId and (type_of_change = 1)); -- ignore if update for security reasons
 			if(abs(datediff(second, convert(time, getdate(), 101), @logTime))<=180)--difference less than 3 minutes
 			begin --rewrite, otherwise error
 				exec attRecInsertionSubroutine @ulogin, @fromString, @shift, @absenceType, @absenceLength, @dayString, @override, @recordId, @errMsg out, @recordId out;
@@ -263,6 +266,7 @@ as
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
+		select XACT_STATE();
 		set @recordId = -1; --erroneous state
 		throw 50112, @errMsg, 1;
 	end catch;
@@ -278,37 +282,87 @@ alter proc updateAttRecord
 @errMsg varchar(255) output
 as
 	declare @leaveTime time;
+	declare @arriveTime time;
 	declare @workedHours real;
 	declare @expectedWorkedHours real;
 	declare @checkDifference real;
+	declare @day date;
+	declare @arriveDtm datetime;
+	declare @leaveDtm datetime;
 	declare @logTime time;
+
 	set datefirst 1;
 	begin try
-		if(OBJECT_ID('tempdb..#update_flag') is null) -- indicates whether an update is to be don
-		begin
-			create table #update_flag(
-				flag bit default 0
-				);
-				insert into #update_flag(flag) values (0);
-		end;
-	 set @leaveTime = CONVERT(time, @leaveTimeString);
-	 set @expectedWorkedHours = (select top 1 ash.planned_hours_work from attendance.attendance_record as ar join
-								attendance.recorded_shifts as ars on ars.record_id=ar.record_id
-								join attendance.shift as ash on ash.type=ars.shifttype
-								where ar.record_id=@recId);
-	 set @checkDifference = (select top 1 datediff(minute, ash.start_time, ash.end_time)/60.0 from attendance.attendance_record as ar join
-								attendance.recorded_shifts as ars on ars.record_id=ar.record_id
-								join attendance.shift as ash on ash.type=ars.shifttype
-								where ar.record_id=@recId);
-		if(@checkDifference = @expectedWorkedHours)
-		begin
+	if((select top 1 record_id from attendance.attendance_record where record_id=@recId) is not null)
+	begin
+			if(OBJECT_ID('tempdb..#update_flag') is null) -- indicates whether an update is to be don
+			begin
+				create table #update_flag(
+					flag bit default 0
+					);
+					insert into #update_flag(flag) values (0);
+			end;
+		 set @leaveTime = CONVERT(time, @leaveTimeString);
+		 set @arriveTime = (select top 1 ar.[from] from attendance.attendance_record ar where ar.record_id=@recId);
+		 set @expectedWorkedHours = (select top 1 ash.planned_hours_work from attendance.attendance_record as ar join
+									attendance.recorded_shifts as ars on ars.record_id=ar.record_id
+									join attendance.shift as ash on ash.type=ars.shifttype
+									where ar.record_id=@recId);
+		 set @checkDifference = (select top 1 datediff(minute, ash.start_time, ash.end_time)/60.0 from attendance.attendance_record as ar join
+									attendance.recorded_shifts as ars on ars.record_id=ar.record_id
+									join attendance.shift as ash on ash.type=ars.shifttype
+									where ar.record_id=@recId);
+		set @day = (select top 1 ar.[day] from attendance.attendance_record ar where ar.record_id=@recId);
+		-- this could have been a night shift, we need to check that
+			if((cast(convert(datetime, @leaveTime) as float) - cast(convert(datetime, @arriveTime) as float))<0.0)
+			begin
+				-- if I am here it has been confirmed
+				set @arriveDtm = convert(datetime, @day) + convert(datetime, @arriveTime);
+				set @leaveDtm = convert(datetime, dateadd(day, 1, @day)) + convert(datetime, @leaveTime);
+				set @workedHours = (abs(datediff(second, @leaveDtm, @arriveDtm))/60.0)/60.0;
+				if(@checkDifference <> @expectedWorkedHours) -- necessary in case we need to subtract lunch break
+				begin 
+					set @workedHours = @workedHours - 0.5;
+				end;
+			end;
+			else
+			begin
+				if(@checkDifference <> @expectedWorkedHours) -- necessary in case we need to subtract lunch break
+				begin 
+					set @workedHours = (select top 1 (DATEDIFF(minute, [from], @leaveTime)/60.0) - 0.5
+									from attendance.attendance_record where record_id=@recId);
+				end;
+				else
+				begin
+					set @workedHours = (select top 1 (DATEDIFF(minute, [from], @leaveTime)/60.0)
+									from attendance.attendance_record where record_id=@recId);
+				end;
+			end;
 			--check if last update less than 3 minutes ago
-			update #update_flag set flag=1;
+			set @logTime = (select top 1 convert(time, rcl.change_timestamp, 101) from logs.record_change_log rcl
+									join logs.records_changes as rc on rc.log_id=rcl.log_id
+									join attendance.attendance_record as ar on ar.record_id=rc.record_id
+									where ar.record_id=@recId and (type_of_change = 3));
+			if(abs(datediff(second, convert(time, getdate(), 101), @logTime))<=180)
+			begin
+				update #update_flag set flag=0;
+			end;
+			else
+			begin
+				update #update_flag set flag=1;
+			end;
 			update attendance.attendance_record
 			 -- implicit cast to real
-			set until = @leaveTime , hours_worked_day = datediff(MINUTE, [from], @leaveTime)/60.0
+			set until = @leaveTime , hours_worked_day = @workedHours
 			where record_id = @recId;
-			exec logRecordChange @recId, @errMsg out;--log this change
+			if((select top 1 flag from #update_flag) = 0)
+			begin
+				exec logRecordChange @recId, 4, @errMsg out;--log this as an update of departure
+			end;
+			else
+			begin
+				exec logRecordChange @recId, 3, @errMsg out;--log this as an insertion update(standard)
+			end;
 			if(@errMsg is not null)
 			begin
 				;
@@ -318,25 +372,12 @@ as
 		end;
 		else
 		begin
-			set @workedHours = (select top 1 (DATEDIFF(minute, [from], @leaveTime)/60.0) - 0.5
-								from attendance.attendance_record where record_id=@recId);
-			--check if last update less than 3 minutes ago
-			update #update_flag set flag=1;
-			update attendance.attendance_record
-			 -- implicit cast to real
-			set until = @leaveTime , hours_worked_day = @workedHours
-			where record_id = @recId;
-			exec logRecordChange @recId, @errMsg out;--log this change
-			if(@errMsg is not null)
-			begin
-				;
-				throw 50122, @errMsg, 1;
-			end;
-			update #update_flag set flag=0;
+			set @errMsg = 'Error, record number: '+ convert(varchar, @recId)+ ' not found';
+			; throw 50133, @errMsg, 1;
 		end;
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
-		select @errMsg;
+		select XACT_STATE();
 	end catch;
 go
