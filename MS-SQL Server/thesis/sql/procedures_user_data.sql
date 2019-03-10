@@ -3,7 +3,8 @@
 
 -- this procedure is a complex view of user's attendance
 -- Data read procedures go here
-ALTER proc getAttendanceSummaryOfUser
+
+alter proc getAttendanceSummaryOfUser
 @ulogin varchar(40),
 @monthAtt int = 0,
 @errMsg varchar(255) output
@@ -21,22 +22,7 @@ as
 	end catch;
 go
 -- this procedure is a complex view of user's attendance
-ALTER proc getMonthlyAbsenceOfUser
-@ulogin varchar(40),
-@monthAtt int=0, -- cannot initialize by functional expression
-@errMsg varchar(255) output
-as
-	set datefirst 1;
-	select absc.descr [Absence], sum(sab.hours_absent) [Hours together]
-			from attendance.attusr au
-			join attendance.attendance_record ar on ar.userLogin=au.ulogin
-			join attendance.summary asu on asu.record_id=ar.record_id
-			join attendance.summary_absence sab on sab.summary_id=asu.summary_id
-			join attendance.absence absc on absc.[type]=sab.absence_type
-			where au.ulogin = @ulogin and DATEPART(month, ar.day)=@monthAtt
-			group by absc.descr;
-go
-ALTER proc getMonthlyAttendanceOfUser
+alter proc getMonthlyAttendanceOfUser
 @ulogin varchar(40),
 @monthAtt int=0, -- cannot initialize by functional expression
 @errMsg varchar(255) output
@@ -50,26 +36,72 @@ as
 			select ar.[day] [Day], ar.[from] [From], ar.until [Until], ar.hours_worked_day [Worked]
 			from attendance.attusr au
 			join attendance.attendance_record ar on ar.userLogin=au.ulogin
-			where au.ulogin=@ulogin and datepart(month, ar.day) = @monthAtt;
-
+			where au.ulogin=@ulogin and datepart(month, ar.[day]) = @monthAtt;
+		end;
+		else
+		begin
+			select ar.[day] [Day], ar.[from] [From], ar.until [Until], ar.hours_worked_day [Worked]
+			from attendance.attusr au
+			join attendance.attendance_record ar on ar.userLogin=au.ulogin
+			where au.ulogin=@ulogin and datepart(month, ar.[day]) = @monthAtt;
 		end;
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
 	end catch;
-
 go
-ALTER proc getMonthlyBonusOfUser
+alter proc getMonthlyBonusOfUser
 @ulogin varchar(40),
 @monthAtt int=0, -- cannot initialize by functional expression
 @errMsg varchar(255) output
 as
 	set datefirst 1;
-	select bon.descr [Bonus], sum(sb.bonus_hours) [Hours together]
-			from attendance.attusr au
-			join attendance.attendance_record ar on ar.userLogin=au.ulogin
+	begin try
+		if(@monthAtt = 0)
+		begin
+			set @monthAtt = datepart(month, convert(date, getdate(), 101));
+			select bon.descr [Bonus], sum(sb.bonus_hours) [Hours together]
+				from attendance.attusr au
+				join attendance.attendance_record ar on ar.userLogin=au.ulogin
+				join attendance.summary asu on asu.record_id=ar.record_id
+				join attendance.summary_bonuses sb on sb.summary_id = asu.summary_id
+				join attendance.bonus as bon on bon.bonus_id=sb.bonus_id
+				where au.ulogin=@ulogin and DATEPART(month, ar.day)=@monthAtt
+				group by bon.descr;
+		end;
+		else
+		begin
+			select bon.descr [Bonus], sum(sb.bonus_hours) [Hours together]
+				from attendance.attusr au
+				join attendance.attendance_record ar on ar.userLogin=au.ulogin
+				join attendance.summary asu on asu.record_id=ar.record_id
+				join attendance.summary_bonuses sb on sb.summary_id = asu.summary_id
+				join attendance.bonus as bon on bon.bonus_id=sb.bonus_id
+				where au.ulogin=@ulogin and DATEPART(month, ar.day)=@monthAtt
+				group by bon.descr;
+		end;
+	end try
+	begin catch
+		set @errMsg = ERROR_MESSAGE();
+	end catch;
+go
+create proc getUsersPublicHolidaysByMonth
+@ulogin varchar(40),
+@monthAtt int =0,
+@errMsg varchar(255) output
+as
+	if(@monthAtt = 0)
+	begin
+		set @monthAtt = datepart(month, convert(date, getdate(), 101));
+		select ph.[date] as [date], sph. from attendance.attusr atu
+			join attendance.attendance_record ar on ar.userLogin=atu.ulogin
 			join attendance.summary asu on asu.record_id=ar.record_id
-			join attendance.summary_bonuses sb on sb.summary_id = asu.summary_id
-			join attendance.bonus as bon on bon.bonus_id=sb.bonus_id
-			where au.ulogin = @ulogin and DATEPART(month, ar.day)=@monthAtt
-			group by bon.descr;
+			join attendance.summary_public_holidays sph on sph.summary_id=asu.summary_id
+			join attendance.public_holidays ph on ph.id=sph.public_holiday_id
+			where atu.ulogin = @ulogin
+			group by
+	end;
+	else
+	begin
+
+	end;
