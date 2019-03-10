@@ -98,7 +98,8 @@ go
 create table logs.record_change_log
 (
 	log_id int identity(1, 1) primary key,
-	change_timestamp datetime2 not null
+	change_timestamp datetime2 not null,
+	type_of_change smallint
 );
 go
 create table logs.records_changes
@@ -133,7 +134,19 @@ create table attendance.summary_public_holidays
 (
 	id int identity(1, 1) primary key,
 	summary_id int not null,
-	public_holiday_id int not null
+	public_holiday_id int not null,
+	hours_worked real not null
+);
+go
+create table logs.summary_state_snapshot
+(
+	id int identity(1, 1) primary key,
+	[timestamp] datetime not null,
+	hours_worked_month_snap real ,
+	bonus_hours_month_snap real ,
+	hours_absent_monh_snap real ,
+	hours_worked_inserted real ,
+	summary_id int
 );
 go
 --alterations
@@ -185,6 +198,9 @@ go -- end of FK alterations
 -- uistime sa ze bonus je % medzi 0 a 100, pricom 0 nemaz vyznam
 alter table attendance.bonus add constraint
 	CHK_percentage check ([% bonus] >=0 and [% bonus] <=100);
+go
+alter table logs.summary_state_snapshot add constraint
+	FK_sumId_asSumId foreign key(summary_id) references attendance.summary(summary_id);
 go
 -- hardcoded data goes here
 insert into attendance.public_holidays([date])
