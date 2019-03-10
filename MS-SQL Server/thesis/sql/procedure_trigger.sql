@@ -1,59 +1,122 @@
 -- script should containt only trigger and procedures used for value calculation
 -- this procedure determines whether an emergency was in progress
+use attendance_dev
 alter proc determineEmergency
 @hours_worked_day real,
 @absenceType varchar(4),
 @lastShift varchar(8),
 @summaryId int,
 @lastDate date,
+@updateSummaryFlag bit=0,
 @errMsg varchar(255) output
 as
 	set datefirst 1;
 	begin try
 		declare @monthlyHours real;
 		declare @emergencyPresent bit;
+		declare @lastInsertedValue real;-- in case this is an update this value needs to be updated and subtracted from summary
+		declare @updatedId int; -- used only in case this is an update
+
+		set @lastInsertedValue = 0.0;
 		set @emergencyPresent = 0;
 		if((@hours_worked_day > 0 )and (@absenceType is null) and (@lastShift like 'VOLN'))
 		begin
-			if(datepart(WEEKDAY, @lastDate)>=6 or (@lastDate in (select [date] from attendance.public_holidays)))
+			if(@updateSummaryFlag = 1) --need to subtract last inserted value
 			begin
-				insert into attendance.summary_bonuses(bonus_id, summary_id, day, bonus_hours)
-					values('0301', @summaryID, @lastDate, @hours_worked_day*(select top 1 [% bonus]/100.0 
-																				from attendance.bonus
-																				where bonus_id like '0301'));
-				set @emergencyPresent = 1; --indicates that emergency was present it is safe to update
-			end;
-			else if(datepart(WEEKDAY, @lastDate)<6)
+				set @lastInsertedValue = (select top 1 bonus_hours from attendance.summary_bonuses 
+											where summary_id=@summaryId and (bonus_id = '0300' or bonus_id = '0301'));
+				set @updatedId = (select top 1 id from attendance.summary_bonuses 
+											where summary_id=@summaryId and (bonus_id = '0300' or bonus_id = '0301'));
+				if(datepart(WEEKDAY, @lastDate)>=6 or (@lastDate in (select [date] from attendance.public_holidays)))
+				begin
+					update attendance.summary_bonuses
+						set bonus_id='0301', summary_id=@summaryId, [day]=@lastDate,
+								bonus_hours=@hours_worked_day*(select top 1 [% bonus]/100.0
+																from attendance.bonus
+																where bonus_id like '0301')
+						where id=@updatedId;
+					set @emergencyPresent = 1; --indicates that emergency was present it is safe to update
+				end;
+				else if(datepart(WEEKDAY, @lastDate)<6)
+				begin
+					update attendance.summary_bonuses
+						set bonus_id='0300', summary_id=@summaryId, [day]=@lastDate,
+								bonus_hours=@hours_worked_day*(select top 1 [% bonus]/100.0
+																from attendance.bonus
+																where bonus_id like '0300')
+						where id=@updatedId;
+					set @emergencyPresent = 1;
+				end;
+			end;--update scenario ends here
+			else--regular cas begins here
 			begin
-				insert into attendance.summary_bonuses(bonus_id, summary_id, day, bonus_hours)
-					values('0300', @summaryId, @lastDate, @hours_worked_day*(select top 1 [% bonus]/100.0 
-																				from attendance.bonus
-																				where bonus_id like '0300'));
-				set @emergencyPresent = 1;
+				if(datepart(WEEKDAY, @lastDate)>=6 or (@lastDate in (select [date] from attendance.public_holidays)))
+				begin
+					insert into attendance.summary_bonuses(bonus_id, summary_id, day, bonus_hours)
+						values('0301', @summaryID, @lastDate, @hours_worked_day*(select top 1 [% bonus]/100.0
+																					from attendance.bonus
+																					where bonus_id like '0301'));
+					set @emergencyPresent = 1; --indicates that emergency was present it is safe to update
+				end;
+				else if(datepart(WEEKDAY, @lastDate)<6)
+				begin
+					insert into attendance.summary_bonuses(bonus_id, summary_id, day, bonus_hours)
+						values('0300', @summaryId, @lastDate, @hours_worked_day*(select top 1 [% bonus]/100.0
+																					from attendance.bonus
+																					where bonus_id like '0300'));
+					set @emergencyPresent = 1;
+				end;
 			end;
-			if(@emergencyPresent <> 0) -- safe to update if this is was an emergency call
+			if(@emergencyPresent <> 0) -- safe to update if this was an emergency call
 			begin
 				set @monthlyHours = (select top 1 bonus_hours_month from attendance.summary
 									where summary_id=@summaryId);
+				if(@monthlyHours is null)
+				begin
+					set @monthlyHours = 0.0;
+				end;
+				if(@lastInsertedValue is null)
+				begin
+					set @lastInsertedValue = 0.0;
+				end;
 				if((select top 1 bonus_hours from attendance.summary_bonuses
 													where id=(IDENT_CURRENT('attendance.summary_bonuses'))) is null)
 				begin
-					set @monthlyHours = @monthlyHours + 0;
+					if(@updateSummaryFlag = 1) -- subtract previous value only if this is a corrective update
+					begin
+						set @monthlyHours = @monthlyHours - @lastInsertedValue + 0;
+					end;
 				end;
 				else
 				begin
-					set @monthlyHours = @monthlyHours + (select top 1 bonus_hours from attendance.summary_bonuses
-													where id=(IDENT_CURRENT('attendance.summary_bonuses')));
+					if(@updateSummaryFlag = 1)
+					begin
+						set @monthlyHours = @monthlyHours - @lastInsertedValue
+								 + (select top 1 bonus_hours from attendance.summary_bonuses
+														where id=(IDENT_CURRENT('attendance.summary_bonuses')));
+					end;
+					else
+					begin
+						set @monthlyHours = @monthlyHours + (select top 1 bonus_hours from attendance.summary_bonuses
+														where id=(IDENT_CURRENT('attendance.summary_bonuses')));
+					end;
 				end;
 				-- update summary -> bonuses
-				update attendance.summary 
+				update attendance.summary
 					set bonus_hours_month = @monthlyHours
-					where summary_id = @summaryId;	
+					where summary_id = @summaryId;
+				exec summarySnapshot @summaryId=@summaryId, @bonus_hours_month=@monthlyHours, @errMsg=@errMsg;
+				if(@errMsg is not null)
+				begin
+					;
+					throw 50201, @errMsg, 1;
+				end;
 			end;
 		end;
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
+		throw 50202, @errMsg, 1;
 	end catch;
 go
 alter proc determineOvertime
@@ -62,116 +125,265 @@ alter proc determineOvertime
 @lastShift varchar(8),
 @lastDate date,
 @summaryId int,
+@updateSummaryFlag bit = 0,
 @errMsg varchar(255) output,
 @overtimePresent real output
 as
-	set datefirst 1;															
+	set datefirst 1;
 	begin try
 		declare @overtime real;
 		declare @monthlyHours real;
+		declare @lastInsertedValue real;
+		declare @lastInsertedId int;
+
+		set @lastInsertedValue = 0.0;
 		set @overtimePresent = 0.0;
-		if(((@hours_worked_day - @expectedWorkTime) > 0) 
-		and ((datepart(WEEKDAY, @lastDate) >= 6) or (@lastDate in (select [date] from attendance.public_holidays)))
-		and (@lastShift not like 'VOLN'))
+		if(@updateSummaryFlag = 1)
 		begin
-			set @overtime = 50;
-			set @overtimePresent = (@hours_worked_day - @expectedWorkTime);
-			insert into attendance.summary_bonuses(bonus_id, summary_id, day, bonus_hours)
-				values ('0161', @summaryId, @lastDate, (@overtime/100.0)*(@hours_worked_day - @expectedWorkTime));
-		end;
-		else if(((@hours_worked_day - @expectedWorkTime) > 0) and 
-		(datepart(WEEKDAY, @lastDate) < 6) and 
-		(@lastShift not like 'VOLN'))
+			set @lastInsertedValue = (select top 1 bonus_hours from attendance.summary_bonuses 
+										where summary_id=@summaryId and (bonus_id='0161' or bonus_id='0160'));
+			set @lastInsertedId = (select top 1 id from attendance.summary_bonuses 
+										where summary_id=@summaryId and (bonus_id='0161' or bonus_id='0160'));
+			--update branch, no insertion works over existing data
+			if(((@hours_worked_day - @expectedWorkTime) > 0)
+			and ((datepart(WEEKDAY, @lastDate) >= 6) or (@lastDate in (select [date] from attendance.public_holidays)))
+			and (@lastShift not like 'VOLN'))
+			begin
+				set @overtime = 50;
+				set @overtimePresent = (@hours_worked_day - @expectedWorkTime);
+				update attendance.summary_bonuses
+					set bonus_id='0161', summary_id=@summaryId, [day]=@lastDate, 
+						bonus_hours=((@overtime/100.0)*(@hours_worked_day - @expectedWorkTime));
+			end;
+			else if(((@hours_worked_day - @expectedWorkTime) > 0) and
+			(datepart(WEEKDAY, @lastDate) < 6) and
+			(@lastShift not like 'VOLN'))
+			begin
+				set @overtime = 25;
+				set @overtimePresent = (@hours_worked_day - @expectedWorkTime);
+				update attendance.summary_bonuses
+					set bonus_id='0160', summary_id=@summaryId, [day]=@lastDate, 
+						bonus_hours=((@overtime/100.0)*(@hours_worked_day - @expectedWorkTime));
+			end;
+		end;--update branch ends here
+		else -- regular flow begins here
 		begin
-			set @overtime = 25;
-			set @overtimePresent = (@hours_worked_day - @expectedWorkTime);
-			insert into attendance.summary_bonuses(bonus_id, summary_id, day, bonus_hours)
-				values ('0160', @summaryId, @lastDate, (@overtime/100.0)*(@hours_worked_day - @expectedWorkTime));
+			if(((@hours_worked_day - @expectedWorkTime) > 0)
+			and ((datepart(WEEKDAY, @lastDate) >= 6) or (@lastDate in (select [date] from attendance.public_holidays)))
+			and (@lastShift not like 'VOLN'))
+			begin
+				set @overtime = 50;
+				set @overtimePresent = (@hours_worked_day - @expectedWorkTime);
+				insert into attendance.summary_bonuses(bonus_id, summary_id, day, bonus_hours)
+					values ('0161', @summaryId, @lastDate, (@overtime/100.0)*(@hours_worked_day - @expectedWorkTime));
+			end;
+			else if(((@hours_worked_day - @expectedWorkTime) > 0) and
+			(datepart(WEEKDAY, @lastDate) < 6) and
+			(@lastShift not like 'VOLN'))
+			begin
+				set @overtime = 25;
+				set @overtimePresent = (@hours_worked_day - @expectedWorkTime);
+				insert into attendance.summary_bonuses(bonus_id, summary_id, day, bonus_hours)
+					values ('0160', @summaryId, @lastDate, (@overtime/100.0)*(@hours_worked_day - @expectedWorkTime));
+			end;
 		end;
+		
 		-- update to increase the overall value
 		if(@overtimePresent > 0) --safe to update if overtime was achieved
 		begin
 			set @monthlyHours = (select top 1 bonus_hours_month from attendance.summary
 								where summary_id=@summaryId);
+			if(@monthlyHours is null)
+			begin
+				set @monthlyHours = 0.0;
+			end;
+			if(@lastInsertedValue is null)
+			begin
+				set @lastInsertedValue = 0.0;
+			end;
 			if((select top 1 bonus_hours from attendance.summary_bonuses
 													where id=(IDENT_CURRENT('attendance.summary_bonuses'))) is null)
 			begin
-				set @monthlyHours = @monthlyHours + 0;
+				if(@updateSummaryFlag = 1) -- subtract only if update
+				begin
+					set @monthlyHours = @monthlyHours - @lastInsertedValue + 0;
+				end;
 			end;
 			else
 			begin
-				set @monthlyHours = @monthlyHours + (select top 1 bonus_hours from attendance.summary_bonuses
-												where id=(IDENT_CURRENT('attendance.summary_bonuses')));
+				if(@updateSummaryFlag = 1) -- subtract only if update
+				begin
+					set @monthlyHours = @monthlyHours - @lastInsertedValue 
+									+ (select top 1 bonus_hours from attendance.summary_bonuses
+										where id=(IDENT_CURRENT('attendance.summary_bonuses')));
+				end;
+				else
+				begin
+					set @monthlyHours = @monthlyHours + (select top 1 bonus_hours from attendance.summary_bonuses
+										where id=(IDENT_CURRENT('attendance.summary_bonuses')));
+				end;
 			end;
 			-- update summary -> bonuses
-			update attendance.summary 
+			update attendance.summary
 				set bonus_hours_month = @monthlyHours
-				where summary_id = @summaryId;	
+				where summary_id = @summaryId;
+			exec summarySnapshot @summaryId=@summaryId, @bonus_hours_month=@monthlyHours, @errMsg=@errMsg;
+			if(@errMsg is not null)
+			begin
+				;
+				throw 50201, @errMsg, 1;
+			end;
 		end;
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
+		throw 50203, @errMsg, 1;
 	end catch;
+go
+create proc determinePublicHoliday
+@lastShift varchar(8),
+@lastDate date,
+@summaryId int,
+@hours_worked_day real,
+@updateSummaryFlag bit = 0,
+@errMsg varchar(255) output
+as
+
 go
 alter proc determineBonus
 @lastShift varchar(8),
 @lastDate date,
 @summaryId int,
 @hours_worked_day real,
+@updateSummaryFlag bit = 0,
 @errMsg varchar(255) output
 as
-	set datefirst 1;														
+	set datefirst 1;
 	begin try
 		declare @monthlyHours real;
-		
-		if((@lastShift like '[NO]%') or (DATEPART(weekday, @lastDate) >= 6))
+		declare @lastInsertedValue real;
+		declare @lastInsertedId int;
+
+		set @lastInsertedValue = 0.0;
+		if(@updateSummaryFlag = 1)
 		begin
-			insert into attendance.summary_bonuses(bonus_id, summary_id, day, bonus_hours)
-				select (case 
-							when @lastShift like 'O%' then '0110' 
+			set @lastInsertedValue = (select top 1 bonus_hours from attendance.summary_bonuses 
+										where summary_id=@summaryId and 
+										(bonus_id='0110' or bonus_id='0123' or 
+											bonus_id = '0130' or bonus_id='0140'));
+			set @lastInsertedId = (select top 1 id from attendance.summary_bonuses 
+										where summary_id=@summaryId and 
+										(bonus_id='0110' or bonus_id='0123' or 
+											bonus_id = '0130' or bonus_id='0140'));
+			if((@lastShift like '[NO]%') or (DATEPART(weekday, @lastDate) >= 6))
+			begin
+			update attendance.summary_bonuses
+				set bonus_id=(case
+							when @lastShift like 'O%' then '0110'
 							when @lastShift like 'N%' then '0123'
-							when ((DATEPART(weekday, convert(date, @lastDate, 101)) = 6) or 
+							when ((DATEPART(weekday, convert(date, @lastDate, 101)) = 6) or
 								(DATEPART(weekday, convert(date, @lastDate, 101)) = 7)) then '0130'
 							when (convert(date, @lastDate, 101) in (select [date] from attendance.public_holidays))
 								then '0140'
-						end) as bonus_id, @summaryId as summary_id, @lastDate as day, 
-						(case
-							when @lastShift like 'O%' then (@hours_worked_day*(select top 1 [% bonus]/100.0 
+						end), summary_id=@summaryId, [day]=@lastDate,
+						bonus_hours=(case
+							when @lastShift like 'O%' then (@hours_worked_day*(select top 1 [% bonus]/100.0
 																				from attendance.bonus
 																				where bonus_id like '0110'))
-							when @lastShift like 'N%' then (@hours_worked_day*(select top 1 [% bonus]/100.0 
+							when @lastShift like 'N%' then (@hours_worked_day*(select top 1 [% bonus]/100.0
 																				from attendance.bonus
 																				where bonus_id like '0123'))
-							when ((DATEPART(weekday, convert(date, @lastDate, 101)) = 6) or 
-								(DATEPART(weekday, convert(date, @lastDate, 101)) = 7)) then 
-															(@hours_worked_day*(select top 1 [% bonus]/100.0 
+							when ((DATEPART(weekday, convert(date, @lastDate, 101)) = 6) or
+								(DATEPART(weekday, convert(date, @lastDate, 101)) = 7)) then
+															(@hours_worked_day*(select top 1 [% bonus]/100.0
 																				from attendance.bonus
 																				where bonus_id like '0130'))
 							when (convert(date, @lastDate, 101) in (select [date] from attendance.public_holidays))
-								then (@hours_worked_day*(select top 1 [% bonus]/100.0 
+								then (@hours_worked_day*(select top 1 [% bonus]/100.0
 														from attendance.bonus
 														where bonus_id like '0140'))
-						end) as bonus_hours;
-			set @monthlyHours = (select top 1 bonus_hours_month from attendance.summary
-									where summary_id=@summaryId);
-			if((select top 1 bonus_hours from attendance.summary_bonuses
-												where id=(IDENT_CURRENT('attendance.summary_bonuses'))) is null)
+						end)
+				where id=@lastInsertedId;
+			end;
+		end; --end of update flow
+		else -- regular flow begin here
+		begin 
+			if((@lastShift like '[NO]%') or (DATEPART(weekday, @lastDate) >= 6))
 			begin
-				set @monthlyHours = @monthlyHours + 0;
+				insert into attendance.summary_bonuses(bonus_id, summary_id, day, bonus_hours)
+					select (case
+								when @lastShift like 'O%' then '0110'
+								when @lastShift like 'N%' then '0123'
+								when ((DATEPART(weekday, convert(date, @lastDate, 101)) = 6) or
+									(DATEPART(weekday, convert(date, @lastDate, 101)) = 7)) then '0130'
+								when (convert(date, @lastDate, 101) in (select [date] from attendance.public_holidays))
+									then '0140'
+							end) as bonus_id, @summaryId as summary_id, @lastDate as day,
+							(case
+								when @lastShift like 'O%' then (@hours_worked_day*(select top 1 [% bonus]/100.0
+																					from attendance.bonus
+																					where bonus_id like '0110'))
+								when @lastShift like 'N%' then (@hours_worked_day*(select top 1 [% bonus]/100.0
+																					from attendance.bonus
+																					where bonus_id like '0123'))
+								when ((DATEPART(weekday, convert(date, @lastDate, 101)) = 6) or
+									(DATEPART(weekday, convert(date, @lastDate, 101)) = 7)) then
+																(@hours_worked_day*(select top 1 [% bonus]/100.0
+																					from attendance.bonus
+																					where bonus_id like '0130'))
+								when (convert(date, @lastDate, 101) in (select [date] from attendance.public_holidays))
+									then (@hours_worked_day*(select top 1 [% bonus]/100.0
+															from attendance.bonus
+															where bonus_id like '0140'))
+							end) as bonus_hours;
+			end;
+		end;
+		set @monthlyHours = (select top 1 bonus_hours_month from attendance.summary
+									where summary_id=@summaryId);
+		if(@monthlyHours is null)
+		begin
+			set @monthlyHours = 0.0;
+		end;
+		if(@lastInsertedValue is null)
+		begin
+			set @lastInsertedValue = 0.0;
+		end;
+		if((select top 1 bonus_hours from attendance.summary_bonuses
+										where id=(IDENT_CURRENT('attendance.summary_bonuses'))) is null)
+		begin
+			if(@updateSummaryFlag = 1) -- only if this is a corrective update of some sort
+			begin
+				set @monthlyHours = @monthlyHours - @lastInsertedValue + 0;
+			end;
+		end;
+		else
+		begin
+			if(@updateSummaryFlag = 1)
+			begin
+				set @monthlyHours = @monthlyHours - @lastInsertedValue
+								 + (select top 1 bonus_hours from attendance.summary_bonuses
+										where id=(IDENT_CURRENT('attendance.summary_bonuses')));
 			end;
 			else
 			begin
 				set @monthlyHours = @monthlyHours + (select top 1 bonus_hours from attendance.summary_bonuses
-												where id=(IDENT_CURRENT('attendance.summary_bonuses')));
-			end;
-			-- update summary -> bonuses
-			update attendance.summary 
-				set bonus_hours_month = @monthlyHours
-				where summary_id = @summaryId;
-		end;	
+										where id=(IDENT_CURRENT('attendance.summary_bonuses')));
+			end
+		end;
+		-- update summary -> bonuses
+		update attendance.summary
+			set bonus_hours_month = @monthlyHours
+			where summary_id = @summaryId;
+		exec summarySnapshot @summaryId=@summaryId, @bonus_hours_month=@monthlyHours, @errMsg=@errMsg;
+		if(@errMsg is not null)
+		begin
+			;
+			throw 50201, @errMsg, 1;
+		end;
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
+		throw 50222, @errMsg, 1;
 	end catch;
 go
 alter proc determineAbsence
@@ -187,44 +399,70 @@ as
 	begin try
 		declare @monthlyHours real;
 		declare @absenceLength real;
-		declare @lastAbsentDayInserted tinyint;
+		declare @previousAbsenceLength real;
 
+		set @previousAbsenceLength = 0.0;
 		if((@lastShift like 'VOLN') and (@absenceType is not null))
 		begin
 			set @absenceLength = (select top 1 absence_length from attendance.recorded_absence where record_id=@lastRecId order by record_id desc);
+			set @previousAbsenceLength = (select top 1 hours_absent from attendance.summary_absence where summary_id=@summaryId order by id desc);
 			if(@updateAbsenceSummaryFlag = 1)
 			begin
-				select 'determined';
 				update attendance.summary_absence
 					set absence_type=@absenceType, summary_id=@summaryId, day_of_absence=@lastDate, hours_absent=@absenceLength
 					where id=IDENT_CURRENT('attendance.summary_absence'); -- updating the last record, no insertion this time
 			end
 			else
 			begin
-				set @lastAbsentDayInserted = (select top 1 DATEPART(day, day_of_absence) from attendance.summary_absence 
-												where summary_id=@summaryId
-												order by id desc);--get the last one by ID
-				if(@lastAbsentDayInserted = DATEPART(day, @lastDate))
-				begin --if true then we must update not insert, otherwise duplicity
-					update attendance.summary_absence
-					set absence_type=@absenceType, summary_id=@summaryId, day_of_absence=@lastDate, hours_absent=@absenceLength
-					where id=IDENT_CURRENT('attendance.summary_absence'); -- updating the last record, no insertion this time
-				end;
-				else
-				begin
-					insert into attendance.summary_absence(absence_type, summary_id, day_of_absence, hours_absent)
-						values(@absenceType, @summaryId, @lastDate, @absenceLength);
-				end;
+				insert into attendance.summary_absence(absence_type, summary_id, day_of_absence, hours_absent)
+					values(@absenceType, @summaryId, @lastDate, @absenceLength);
 			end;
 
 			--update overall absence
 			set @monthlyHours = (select top 1 hours_absent_month from attendance.summary
 								where summary_id=@summaryId);
-			set @monthlyHours = @monthlyHours + @absenceLength;
-
+			-- we need to subtract previous value in case of update < 3 mins, otherwise we get incorrect
+			-- statistics in summary
+			if(@monthlyHours is not null and @previousAbsenceLength is not null)
+			begin
+				if(@updateAbsenceSummaryFlag = 1) --Am I updating the record?
+				begin
+					set @monthlyHours = @monthlyHours - @previousAbsenceLength + @absenceLength;
+				end;
+				else--if not then I shouldn't subtract anything
+				begin
+					set @monthlyHours = @monthlyHours + @absenceLength;
+				end;
+			end;
+			else
+			begin
+				if(@monthlyHours is null)
+				begin
+					set @monthlyHours = 0.0;
+				end;
+				if(@previousAbsenceLength is null)
+				begin
+					set @previousAbsenceLength = 0.0;
+				end
+				if(@updateAbsenceSummaryFlag = 1)
+				begin
+					set @monthlyHours = @monthlyHours - @previousAbsenceLength + @absenceLength;
+				end;
+				else
+				begin
+					set @monthlyHours = @monthlyHours + @absenceLength;
+				end;
+			end;
+			
 			update attendance.summary
 				set hours_absent_month = @monthlyHours
 				where summary_id = @summaryId;
+			exec summarySnapshot @summaryId=@summaryId, @hours_absent_month=@monthlyHours, @errMsg=@errMsg;
+			if(@errMsg is not null)
+			begin
+				;
+				throw 50201, @errMsg, 1;
+			end;
 		end;
 	end try
 	begin catch
@@ -232,53 +470,108 @@ as
 		throw 51007, @errMsg, 1;
 	end catch;
 go
-create proc fullCheck
+alter proc fullCheck
 @ulogin varchar(40),
 @lastDate date,
 @hours_worked_day real,
 @lastRecId int,
 @summaryCreated int,
-@lastShift varchar(8), 
+@lastShift varchar(8),
 @expectedWorkTime real,
 @absenceType varchar(4),
+@updateSummaryFlag bit=0, -- is this an update?
 @errMsg varchar(255) output
 as
 	declare @monthlyHours real;
 	declare @overtimePresent real;
+	declare @snapshotHoursInserted real;
+	
 	set datefirst 1;
 	set @overtimePresent =0.0;
+	set @snapshotHoursInserted = 0.0;
+
 	begin try
 		if(@summaryCreated is not null)
 		begin
-			set @monthlyHours = (select top 1 hours_worked_month from attendance.summary
-									where summary_id=@summaryCreated);
-			set @monthlyHours = @monthlyHours + @hours_worked_day;
-			-- update summary -> bonuses
-			update attendance.summary 
-				set hours_worked_month = @monthlyHours
-				where summary_id = @summaryCreated;
-								-- determine if emergency
-			exec determineEmergency @hours_worked_day, @absenceType, @lastShift, @summaryCreated, @lastDate, @errMsg=@errMsg;
+			-- determine if emergency
+			if(@updateSummaryFlag = 1)
+			begin
+				exec determineEmergency @hours_worked_day, @absenceType, @lastShift, @summaryCreated, @lastDate, 1, @errMsg=@errMsg;
+			end;
+			else
+			begin
+				exec determineEmergency @hours_worked_day, @absenceType, @lastShift, @summaryCreated, @lastDate, 0, @errMsg=@errMsg;
+			end;
 			if(@errMsg is not null)
 			begin
 				print 'Error determining emergency: ' + @errMsg;
+				throw 51111, @errMsg, 1;
 			end;
 			else
 			begin
 				-- determine if employee should be paid overtime
-				exec determineOvertime @hours_worked_day, @expectedWorkTime, @lastShift, @lastDate, @summaryCreated, @errMsg out, @overtimePresent out;
+				if(@updateSummaryFlag = 1)
+				begin
+					exec determineOvertime @hours_worked_day, @expectedWorkTime, @lastShift, @lastDate, @summaryCreated, 1, @errMsg out, @overtimePresent out;
+				end;
+				else
+				begin
+					exec determineOvertime @hours_worked_day, @expectedWorkTime, @lastShift, @lastDate, @summaryCreated, 0, @errMsg out, @overtimePresent out;
+				end;
 				set @hours_worked_day = @hours_worked_day - @overtimePresent;-- this can only be done here not earlier not later
 				if(@errMsg is not null)
 				begin
 					print 'Error determining overtime: ' + @errMsg;
+					throw 51112, @errMsg, 2;
 				end;
 			end;
 			-- determine any other bonus
-			exec determineBonus @lastShift, @lastDate, @summaryCreated, @hours_worked_day, @errMsg=@errMsg;
+			if(@updateSummaryFlag = 1)
+			begin
+				exec determineBonus @lastShift, @lastDate, @summaryCreated, @hours_worked_day, 1, @errMsg=@errMsg;
+			end;
+			else
+			begin
+				exec determineBonus @lastShift, @lastDate, @summaryCreated, @hours_worked_day, 0, @errMsg=@errMsg;
+			end;
 			if(@errMsg is not null)
 			begin
 				print 'Error determining bonuses: ' + @errMsg;
+				throw 51113, @errMsg, 3;
 			end;
+			if(@updateSummaryFlag = 1)
+			begin
+				set @snapshotHoursInserted = (select top 1 hours_worked_inserted
+												 from logs.summary_state_snapshot 
+												where summary_id=@summaryCreated and
+										(cast(convert(datetime, convert(date, [timestamp])) as float) - 
+										cast(convert(datetime, @lastDate) as float)) = 0
+										order by id desc);
+			end;
+			set @monthlyHours = (select top 1 hours_worked_month from attendance.summary
+								where summary_id=@summaryCreated);
+			if(@monthlyHours is null)
+			begin
+				set @monthlyHours = 0.0;
+			end;
+			if(@snapshotHoursInserted is null)
+			begin
+				set @snapshotHoursInserted = 0.0;
+			end;
+			if(@updateSummaryFlag = 1) --only do this if this is an update
+			begin
+				set @monthlyHours = @monthlyHours - @snapshotHoursInserted + @hours_worked_day;
+			end;
+			else
+			begin
+				set @monthlyHours = @monthlyHours + @hours_worked_day;
+			end;
+			
+			update attendance.summary
+				set hours_worked_month = @monthlyHours
+				where summary_id = @summaryCreated;
+			--call snapshotting logger
+			exec summarySnapshot @summaryId=@summaryCreated, @hours_worked_month=@monthlyHours, @hours_worked_inserted=@hours_worked_day, @errMsg=@errMsg;
 		end; -- if summary existed flow ends here
 		else -- if summary doesn't yet exists, flow starts here
 		begin
@@ -286,28 +579,89 @@ as
 				values(@lastRecId, @hours_worked_day, 0, 0);
 			set @summaryCreated = IDENT_CURRENT('attendance.summary');
 			-- determine if emergency
-			exec determineEmergency @hours_worked_day, @absenceType, @lastShift, @summaryCreated, @lastDate, @errMsg=@errMsg;
+			if(@updateSummaryFlag = 1)
+			begin
+				exec determineEmergency @hours_worked_day, @absenceType, @lastShift, @summaryCreated, @lastDate, 1, @errMsg=@errMsg;
+			end;
+			else
+			begin
+				exec determineEmergency @hours_worked_day, @absenceType, @lastShift, @summaryCreated, @lastDate, 0, @errMsg=@errMsg;
+			end;
 			if(@errMsg is not null)
 			begin
 				print 'Error determining emergency 2: ' + @errMsg;
+				throw 51114, @errMsg, 4;
 			end;
 			else
 			begin
 				-- determine if employee should be paid overtime
-				exec determineOvertime @hours_worked_day, @expectedWorkTime, @lastShift, @lastDate, @summaryCreated, @errMsg out, @overtimePresent out;
+				if(@updateSummaryFlag = 1)
+				begin
+					exec determineOvertime @hours_worked_day, @expectedWorkTime, @lastShift, @lastDate, @summaryCreated, 1, @errMsg out, @overtimePresent out;
+				end;
+				else
+				begin
+					exec determineOvertime @hours_worked_day, @expectedWorkTime, @lastShift, @lastDate, @summaryCreated, 0, @errMsg out, @overtimePresent out;
+				end;
 				set @hours_worked_day = @hours_worked_day - @overtimePresent; -- this can only be done here not earlier not later
 				if(@errMsg is not null)
 				begin
 					print 'Error determining overtime 2: ' + @errMsg;
+					throw 51115, @errMsg, 5;
 				end;
 			end;
 			-- determine any other bonus
-			exec determineBonus @lastShift, @lastDate, @summaryCreated, @hours_worked_day, @errMsg=@errMsg;
+			if(@updateSummaryFlag = 1)
+			begin
+				exec determineBonus @lastShift, @lastDate, @summaryCreated, @hours_worked_day, 1, @errMsg=@errMsg;
+			end;
+			else
+			begin
+				exec determineBonus @lastShift, @lastDate, @summaryCreated, @hours_worked_day, 0, @errMsg=@errMsg;
+			end;
 			if(@errMsg is not null)
 			begin
 				print 'Error determining bonuses 2: ' + @errMsg;
+				throw 51116, @errMsg, 5;
 			end;
+			-- updating the summary here
+			if(@updateSummaryFlag = 1)
+			begin
+				set @snapshotHoursInserted = (select top 1 hours_worked_inserted
+												 from logs.summary_state_snapshot 
+												where summary_id=@summaryCreated and
+										(cast(convert(datetime, convert(date, [timestamp])) as float) - 
+										cast(convert(datetime, @lastDate) as float)) = 0
+										order by id desc);
+			end;
+					
+			set @monthlyHours = (select top 1 hours_worked_month from attendance.summary
+								where summary_id=@summaryCreated);
+				-- update summary -> bonuses
+				-- no point in further calculation, since no summary previously existed
+			if(@monthlyHours is null)
+			begin
+				set @monthlyHours = 0.0;
+			end;
+			if(@snapshotHoursInserted is null)
+			begin
+				set @snapshotHoursInserted = 0.0;
+			end;
+			if(@updateSummaryFlag = 1) --only do this if this is an update
+			begin
+				set @monthlyHours = @monthlyHours - @snapshotHoursInserted + @hours_worked_day;
+			end;
+			else
+			begin
+				set @monthlyHours = @monthlyHours + @hours_worked_day;
+			end;
+			update attendance.summary
+				set hours_worked_month = @monthlyHours
+				where summary_id = @summaryCreated;
+			--call snapshotting logger
+			exec summarySnapshot @summaryId=@summaryCreated, @hours_worked_month=@monthlyHours, @hours_worked_inserted=@hours_worked_day, @errMsg=@errMsg;
 		end;
+		
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
@@ -331,12 +685,11 @@ as
 		begin
 		-- determine if absence
 			if(@updateAbsenceSummaryFlag=1)
-			begin 
-				select 'checked';
+			begin
 				exec determineAbsence @lastShift, @absenceType, @summaryCreated, @lastDate, @lastRecId, 1, @errMsg=@errMsg;
 			end;
 			else
-			begin								
+			begin
 				exec determineAbsence @lastShift, @absenceType, @summaryCreated, @lastDate, @lastRecId, 0, @errMsg=@errMsg;
 			end;
 			if(@errMsg is not null)
@@ -351,8 +704,7 @@ as
 				values(@lastRecId, @hours_worked_day, 0, 0);
 			set @summaryCreated = IDENT_CURRENT('attendance.summary');
 			if(@updateAbsenceSummaryFlag=1)
-			begin 
-			select 'checked';
+			begin
 				exec determineAbsence @lastShift, @absenceType, @summaryCreated, @lastDate, @lastRecId, 1, @errMsg=@errMsg;
 			end;
 			else
@@ -372,6 +724,10 @@ as
 	end catch;
 go
 -- this is an initializer function called from trigger, which is called on update automatically
+-- ulogin -> user login
+-- lastDate -> insertion date
+-- hours_worked_day -> how many hours the user worked per day/per shift in case this was a night shift
+-- 
 alter proc summaryUpdater
 @ulogin varchar(40),
 @lastDate date,
@@ -390,7 +746,7 @@ as
 	set @overtimePresent =0.0;
 	begin try
 		--verify if a summary for a given user in a given month's records exists
-		-- of so, no new shall be created, otherwise create a new one
+		-- if so, no new shall be created, otherwise create a new one
 
 		set @summaryCreated = (select top 1 asu.summary_id from attendance.attusr as au
 			join attendance.attendance_record as ar on ar.userLogin = au.ulogin
@@ -409,7 +765,6 @@ as
 		begin
 			if(@updateAbsenceSummaryFlag = 1)
 			begin
-				select 'updater';
 				exec absenceChecker @ulogin, @lastDate, @hours_worked_day, @lastRecId, @summaryCreated, @lastShift, @expectedWorkTime, @absenceType, 1, @errMsg=@errMsg;
 			end;
 			else
@@ -424,7 +779,14 @@ as
 		end;
 		else if(@expectedWorkTime <> 0 and (@lastShift not like 'VOLN') and (@absenceType like '' or @absenceType is null))
 		begin
-			exec fullCheck @ulogin, @lastDate, @hours_worked_day, @lastRecId, @summaryCreated, @lastShift, @expectedWorkTime, @absenceType, @errMsg=@errMsg;
+			if(@updateAbsenceSummaryFlag = 1)
+			begin
+				exec fullCheck @ulogin, @lastDate, @hours_worked_day, @lastRecId, @summaryCreated, @lastShift, @expectedWorkTime, @absenceType, 1, @errMsg=@errMsg;
+			end;
+			else
+			begin
+				exec fullCheck @ulogin, @lastDate, @hours_worked_day, @lastRecId, @summaryCreated, @lastShift, @expectedWorkTime, @absenceType, 0, @errMsg=@errMsg;
+			end;
 			if(@errMsg is not null)
 			begin
 				set @errMsg = 'Error determining absence summaryChecker - fullCheck: ' + @errMsg;
@@ -465,7 +827,6 @@ as
 								where ar.record_id=@lastRecId);
 			if(abs(datediff(second, convert(time, getdate(), 101), @logTime))<=180)
 			begin
-				select 'trigga';
 				exec summaryUpdater @ulogin, @insDate, @hours_worked_day, @lastRecId, 1, @errMsg=@errMsg;
 			end;
 			else
