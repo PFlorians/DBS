@@ -146,14 +146,15 @@ as
 										where summary_id=@summaryId and (bonus_id='0161' or bonus_id='0160'));
 			--update branch, no insertion works over existing data
 			if(((@hours_worked_day - @expectedWorkTime) > 0)
-			and ((datepart(WEEKDAY, @lastDate) >= 6) or (@lastDate in (select [date] from attendance.public_holidays)))
+			and (datepart(WEEKDAY, @lastDate) >= 6)
 			and (@lastShift not like 'VOLN'))
 			begin
 				set @overtime = 50;
 				set @overtimePresent = (@hours_worked_day - @expectedWorkTime);
 				update attendance.summary_bonuses
 					set bonus_id='0161', summary_id=@summaryId, [day]=@lastDate, 
-						bonus_hours=((@overtime/100.0)*(@hours_worked_day - @expectedWorkTime));
+						bonus_hours=((@overtime/100.0)*(@hours_worked_day - @expectedWorkTime))
+					where id=@lastInsertedId;
 			end;
 			else if(((@hours_worked_day - @expectedWorkTime) > 0) and
 			(datepart(WEEKDAY, @lastDate) < 6) and
@@ -163,13 +164,14 @@ as
 				set @overtimePresent = (@hours_worked_day - @expectedWorkTime);
 				update attendance.summary_bonuses
 					set bonus_id='0160', summary_id=@summaryId, [day]=@lastDate, 
-						bonus_hours=((@overtime/100.0)*(@hours_worked_day - @expectedWorkTime));
+						bonus_hours=((@overtime/100.0)*(@hours_worked_day - @expectedWorkTime))
+					where id=@lastInsertedId;
 			end;
 		end;--update branch ends here
 		else -- regular flow begins here
 		begin
 			if(((@hours_worked_day - @expectedWorkTime) > 0)
-			and ((datepart(WEEKDAY, @lastDate) >= 6) or (@lastDate in (select [date] from attendance.public_holidays)))
+			and ((datepart(WEEKDAY, @lastDate) >= 6))
 			and (@lastShift not like 'VOLN'))
 			begin
 				set @overtime = 50;
@@ -242,13 +244,104 @@ as
 go
 create proc determinePublicHoliday
 @lastShift varchar(8),
+@expectedWorkTime real,
 @lastDate date,
 @summaryId int,
 @hours_worked_day real,
 @updateSummaryFlag bit = 0,
 @errMsg varchar(255) output
 as
+	set datefirst 1;
+	begin try
+		declare @monthlyHours real;
+		declare @lastInsertedValue real;
+		declare @lastInsertedId int;
+		declare @publicHolidayId int;
 
+		set @lastInsertedValue = 0.0;
+		if(@updateSummaryFlag = 1)
+		begin
+			set @lastInsertedValue = (select top 1 bonus_hours from attendance.summary_bonuses 
+										where summary_id=@summaryId and (bonus_id='0161' or bonus_id='0160'));
+			set @lastInsertedId = (select top 1 id from attendance.summary_bonuses 
+										where summary_id=@summaryId and (bonus_id='0161' or bonus_id='0160'));
+			if(((@hours_worked_day - @expectedWorkTime) > 0) and 
+			(@lastDate in (select [date] from attendance.public_holidays)) and
+			(@lastShift like 'VOLN'))
+			begin
+				set @publicHolidayId = (select top 1 id from attendance.public_holidays where
+										[date] = @lastDate);
+				update attendance.summary_bonuses
+					set summary_id = @summaryId, [day]=@lastDate, 
+					bonus_hours = @hours_worked_day * (select top 1 [% bonus]/100.0 from attendance.bonus where bonus_id like '0140')
+					where id = @lastInsertedId;
+			end;
+		end;
+		else
+		begin
+			if(((@hours_worked_day - @expectedWorkTime) > 0) and 
+			(@lastDate in (select [date] from attendance.public_holidays)) and
+			(@lastShift like 'VOLN'))
+			begin
+				set @publicHolidayId = (select top 1 id from attendance.public_holidays where
+										[date] = @lastDate);
+				insert into attendance.summary_bonuses(bonus_id, summary_id, [day], bonus_hours)
+				values ('0140', @summaryId, @lastDate, @hours_worked_day*(select top 1 [% bonus]/100.0 from
+																			attendance.bonus
+																			where bonus_id like '0140'));
+				insert into attendance.summary_public_holidays(summary_id, public_holiday_id)
+				values(@summaryId, @publicHolidayId);
+			end;
+		end;
+		-- calculate summary statistics in this code segment
+		set @monthlyHours = (select top 1 bonus_hours_month from attendance.summary
+							where summary_id=@summaryId);
+		if(@monthlyHours is null)
+		begin
+			set @monthlyHours = 0.0;
+		end;
+		if(@lastInsertedValue is null)
+		begin
+			set @lastInsertedValue = 0.0;
+		end;
+		if((select top 1 bonus_hours from attendance.summary_bonuses
+												where id=(IDENT_CURRENT('attendance.summary_bonuses'))) is null)
+		begin
+			if(@updateSummaryFlag = 1) -- subtract only if update
+			begin
+				set @monthlyHours = @monthlyHours - @lastInsertedValue + 0;
+			end;
+		end;
+		else
+		begin
+			if(@updateSummaryFlag = 1) -- subtract only if update
+			begin
+				set @monthlyHours = @monthlyHours - @lastInsertedValue 
+								+ (select top 1 bonus_hours from attendance.summary_bonuses
+									where id=(IDENT_CURRENT('attendance.summary_bonuses')));
+			end;
+			else
+			begin
+				set @monthlyHours = @monthlyHours + (select top 1 bonus_hours from attendance.summary_bonuses
+									where id=(IDENT_CURRENT('attendance.summary_bonuses')));
+			end;
+		end;
+		-- update summary -> bonuses
+		update attendance.summary
+			set bonus_hours_month = @monthlyHours
+			where summary_id = @summaryId;
+		-- snapshot to see what happened
+		exec summarySnapshot @summaryId=@summaryId, @bonus_hours_month=@monthlyHours, @errMsg=@errMsg;
+		if(@errMsg is not null)
+		begin
+			;
+			throw 55201, @errMsg, 1;
+		end;
+	end try
+	begin catch 
+		set @errMsg = ERROR_MESSAGE();
+		throw 55001, @errMsg, 1;
+	end catch;
 go
 alter proc determineBonus
 @lastShift varchar(8),
@@ -524,6 +617,20 @@ as
 					print 'Error determining overtime: ' + @errMsg;
 					throw 51112, @errMsg, 2;
 				end;
+				-- find out if this is a public holiday worker case
+				if(@updateSummaryFlag = 1)
+				begin
+					exec determinePublicHoliday @lastShift, @expectedWorkTime, @lastDate, @summaryCreated, @hours_worked_day, 1, @errMsg out;
+				end;
+				else
+				begin
+					exec determinePublicHoliday @lastShift, @expectedWorkTime, @lastDate, @summaryCreated, @hours_worked_day, 0, @errMsg out;
+				end;
+				if(@errMsg is not null)
+				begin
+					set @errMsg = 'Error determining public holiday: ' + @errMsg;
+					throw 51117, @errMsg, 7;
+				end;
 			end;
 			-- determine any other bonus
 			if(@updateSummaryFlag = 1)
@@ -572,6 +679,11 @@ as
 				where summary_id = @summaryCreated;
 			--call snapshotting logger
 			exec summarySnapshot @summaryId=@summaryCreated, @hours_worked_month=@monthlyHours, @hours_worked_inserted=@hours_worked_day, @errMsg=@errMsg;
+			if(@errMsg is not null)
+			begin
+				set @errMsg = 'Full check error creating snapshot: ' + @errMsg;
+				throw 51119, @errMsg, 9;
+			end;
 		end; -- if summary existed flow ends here
 		else -- if summary doesn't yet exists, flow starts here
 		begin
@@ -608,6 +720,19 @@ as
 				begin
 					print 'Error determining overtime 2: ' + @errMsg;
 					throw 51115, @errMsg, 5;
+				end;
+				if(@updateSummaryFlag = 1)
+				begin
+					exec determinePublicHoliday @lastShift, @expectedWorkTime, @lastDate, @summaryCreated, @hours_worked_day, 1, @errMsg out;
+				end;
+				else
+				begin
+					exec determinePublicHoliday @lastShift, @expectedWorkTime, @lastDate, @summaryCreated, @hours_worked_day, 0, @errMsg out;
+				end;
+				if(@errMsg is not null)
+				begin
+					set @errMsg = 'Error determining public holiday fresh creation of summary: ' + @errMsg;
+					throw 51118, @errMsg, 8;
 				end;
 			end;
 			-- determine any other bonus
@@ -660,11 +785,16 @@ as
 				where summary_id = @summaryCreated;
 			--call snapshotting logger
 			exec summarySnapshot @summaryId=@summaryCreated, @hours_worked_month=@monthlyHours, @hours_worked_inserted=@hours_worked_day, @errMsg=@errMsg;
+			if(@errMsg is not null)
+			begin
+				set @errMsg = 'Full check error creating snapshot: ' + @errMsg;
+				throw 51119, @errMsg, 9;
+			end;
 		end;
-		
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
+		throw 51120, @errMsg, 1;
 	end catch;
 go
 alter proc absenceChecker
