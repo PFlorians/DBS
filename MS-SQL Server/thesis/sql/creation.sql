@@ -135,7 +135,6 @@ create table attendance.summary_public_holidays
 	id int identity(1, 1) primary key,
 	summary_id int not null,
 	public_holiday_id int not null,
-	hours_worked real not null
 );
 go
 create table logs.summary_state_snapshot
