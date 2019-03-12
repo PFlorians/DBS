@@ -290,6 +290,7 @@ as
 	declare @arriveDtm datetime;
 	declare @leaveDtm datetime;
 	declare @logTime time;
+	declare @shift varchar(8);
 
 	set datefirst 1;
 	begin try
@@ -308,10 +309,19 @@ as
 									attendance.recorded_shifts as ars on ars.record_id=ar.record_id
 									join attendance.shift as ash on ash.type=ars.shifttype
 									where ar.record_id=@recId);
-		 set @checkDifference = (select top 1 datediff(minute, ash.start_time, ash.end_time)/60.0 from attendance.attendance_record as ar join
+		 set @checkDifference = (select top 1  (case 
+									when ash.[type] like 'N%' 
+										then datediff(hour, convert(datetime, ash.start_time), dateadd(day, 1, convert(datetime, ash.end_time)))
+										else datediff(minute, ash.start_time, ash.end_time)/60.0 
+									end) 
+									from attendance.attendance_record as ar join
 									attendance.recorded_shifts as ars on ars.record_id=ar.record_id
 									join attendance.shift as ash on ash.type=ars.shifttype
 									where ar.record_id=@recId);
+		set @shift = (select top 1 ash.[type] from attendance.attendance_record as ar join
+										attendance.recorded_shifts ars on ars.record_id=ar.record_id join
+										attendance.shift as ash on ash.type=ars.shifttype
+										where ar.record_id=@recId);									
 		set @day = (select top 1 ar.[day] from attendance.attendance_record ar where ar.record_id=@recId);
 		-- this could have been a night shift, we need to check that
 			if((cast(convert(datetime, @leaveTime) as float) - cast(convert(datetime, @arriveTime) as float))<0.0)
@@ -323,6 +333,10 @@ as
 				if(@checkDifference <> @expectedWorkedHours) -- necessary in case we need to subtract lunch break
 				begin 
 					set @workedHours = @workedHours - 0.5;
+				end;-- could be a that this is some kind of work during weekend or public holiday
+				else if((@checkDifference = 0) and (@expectedWorkedHours = 0) and (@shift like 'VOLN') and (@workedHours >= 4.5))
+				begin
+					set @workedHours = @workedHours - 0.5;
 				end;
 			end;
 			else
@@ -331,11 +345,18 @@ as
 				begin 
 					set @workedHours = (select top 1 (DATEDIFF(minute, [from], @leaveTime)/60.0) - 0.5
 									from attendance.attendance_record where record_id=@recId);
-				end;
+				end;-- could be a that this is some kind of work during weekend or public holiday
 				else
 				begin
 					set @workedHours = (select top 1 (DATEDIFF(minute, [from], @leaveTime)/60.0)
 									from attendance.attendance_record where record_id=@recId);
+					if(@checkDifference = 0 and @expectedWorkedHours = 0)
+					begin
+						if(@shift like 'VOLN' and @workedHours >= 4.5)
+						begin
+							set @workedHours = @workedHours - 0.5;
+						end;
+					end;
 				end;
 			end;
 			--check if last update less than 3 minutes ago
