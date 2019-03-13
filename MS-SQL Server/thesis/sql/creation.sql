@@ -7,7 +7,7 @@ set datefirst 1
 go
 -- to purge indexes:
 -- dbcc checkident (<table>, reseed, 0)
--- creation of tables 
+-- creation of tables
 create table attendance.attusr
 (
 ulogin varchar(40) primary key,
@@ -62,7 +62,7 @@ create table attendance.bonus
 	descr varchar(100) not null,
 	[% bonus] int not null
 );
-go 
+go
 create table attendance.summary_bonuses
 (
 	id int identity(1, 1) primary key,
@@ -154,7 +154,7 @@ alter table attendance.summary_public_holidays add constraint
 alter table attendance.summary_public_holidays add constraint
 	FK_pubHolId_pubHolId foreign key (public_holiday_id) references attendance.public_holidays(id);
 go
-alter table logs.user_changes add constraint 
+alter table logs.user_changes add constraint
 	FK_uchanges_logId foreign key (log_id) references logs.user_change_log(log_id);
 alter table logs.user_changes add constraint
 	FK_uchanges_uLogin foreign key (userLogin) references attendance.attUsr(ulogin);
@@ -190,7 +190,7 @@ alter table attendance.summary_absence add constraint
 go
 alter table attendance.recorded_absence add constraint
 	FK_recAbsRecordId_attRecRecId foreign key (record_id) references attendance.attendance_record(record_id);
-alter table attendance.recorded_absence add constraint 
+alter table attendance.recorded_absence add constraint
 	FK_reckAbsType_absType foreign key(type) references attendance.absence(type);
 go -- end of FK alterations
 -- other alterations
@@ -230,7 +230,7 @@ values
 ('0205', 'Illnes(any unpaid type), occupational disease, maternity leave, parental, (everything paid by health insurance)'),
 ('0300', 'Unpaid leave'), ('0310', 'Unauthorized absence'), ('0410', 'Substitute leave for a public holiday');
 
-insert into attendance.shift(type, planned_hours_work, start_time, end_time) 
+insert into attendance.shift(type, planned_hours_work, start_time, end_time)
 values
 ('D8', 7.50, '06:00:00', '14:00:00'), ('N12', 11.00, '18:00:00', '06:00:00'),
 ('N8', 7.50, '22:00:00', '06:00:00'), ('N825', 7.75, '21:45:00', '06:00:00'),
@@ -239,7 +239,7 @@ values
 ('O75', 7.00, '14:30:00', '22:00:00'), ('O8', 7.50, '14:00:00', '22:00:00'),
 ('O810', 7.50, '10:00:00', '18:00:00'), ('O812', 7.50, '12:00:00', '20:00:00'),
 ('O813', 7.50, '13:00:00', '21:00:00'), ('O825', 7.75, '14:00:00', '22:15:00');
-insert into attendance.shift(type, planned_hours_work, start_time, end_time) 
+insert into attendance.shift(type, planned_hours_work, start_time, end_time)
 values
 ('O85', 8, '14:00:00', '22:30:00'), ('O8X', 8, '14:00:00', '22:00:00'),
 ('O9', 8.50, '14:00:00', '23:00:00'), ('O95', 9, '14:00:00', '23:30:00'),
@@ -248,12 +248,12 @@ values
 ('R10', 9.50, '06:00:00', '16:00:00'), ('R105', 10.00, '06:00:00', '16:30:00'),
 ('R10Q', 10.00, '06:00:00', '16:00:00'), ('R11Q', 11.00, '06:00:00', '17:00:00'),
 ('R12', 11, '06:00:00', '18:00:00'), ('R12B', 11.50, '06:00:00', '18:00:00');
-insert into attendance.shift(type, planned_hours_work, start_time, end_time) 
+insert into attendance.shift(type, planned_hours_work, start_time, end_time)
 values
 ('R15Q', 10.50, '06:00:00', '16:30:00'), ('R15T', 10.00, '06:00:00', '16:30:00'),
 ('R45Q', 4.50, '06:00:00', '10:30:00'), ('R46T', 4.50, '06:00:00', '10:30:00'),
 ('R4Q', 4.00, '06:00:00', '10:00:00'), ('R5', 5, '07:00:00', '12:00:00');
-insert into attendance.shift(type, planned_hours_work, start_time, end_time) 
+insert into attendance.shift(type, planned_hours_work, start_time, end_time)
 values
 ('R55', 5.50, '06:00:00', '12:00:00'), ('R55Q', 5.50, '06:00:00', '11:30:00'),
 ('R56T', 5, '06:00:00', '11:00:00'), ('R5Q', 5, '06:00:00', '11:00:00'),
