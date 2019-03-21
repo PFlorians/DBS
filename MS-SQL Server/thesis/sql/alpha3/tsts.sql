@@ -43,6 +43,7 @@ begin tran t0
 
 	select * from attendance.attendance_record;
 	select * from attendance.recorded_shifts;
+	select * from attendance.summary_absence;
 	
 	exec updateAttRecord @recId=1, @timeStringDepart='13:25:00', @errMsg=@errMsg;
 	exec updateAttRecord @recId=2, @timeStringDepart='13:31:26', @errMsg=@errMsg;
@@ -69,7 +70,7 @@ begin tran t0
 	exec updateAttRecord @recId=17, @timeStringDepart='00:00:00', @errMsg=@errMsg;
 	exec updateAttRecord @recId=18, @timeStringDepart='06:02:11', @errMsg=@errMsg;
 	
-
+	select * from attendance.attusr
 	select * from attendance.summary;
 	select * from attendance.summary_bonuses;
 	select * from attendance.summary_absence;
@@ -110,8 +111,34 @@ begin tran t0
 	select * from logs.summary_state_snapshot;
 	select * from attendance.attendance_record;
 
-rollback tran t0
+	--user 2
+	exec newAttendanceRecord 'dhinojos', '05:58:10', 'D8',default,default,'01.02.2019', @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'dhinojos', '05:59:21', 'D8',default,default,'02.02.2019', @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'dhinojos', '06:00:03', 'D8',default,default,'03.02.2019', @errMsg=@errMsg, @recordId=@recId;
 
+	select * from attendance.attendance_record;
+	select * from attendance.recorded_shifts;
+	exec updateAttRecord @recId=24, @timeStringDepart='13:08:10', @errMsg=@errMsg;
+	exec updateAttRecord @recId=25, @timeStringDepart='13:03:01', @errMsg=@errMsg;
+	exec updateAttRecord @recId=26, @timeStringDepart='13:09:17', @errMsg=@errMsg;
+	select * from attendance.summary;
+	select * from attendance.summary_bonuses;
+	select * from attendance.summary_absence;
+	select * from attendance.summary_public_holidays;
+	select * from logs.summary_state_snapshot;
+	select * from attendance.attendance_record;
+commit tran t0;
+begin tran t1
+	declare @errMsg varchar(255);
+	declare @recId int;
+	set datefirst 1
+	exec newAttendanceRecord 'dhinojos', '05:58:10', 'D8',default,default,'01.02.2019', @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'dhinojos', '05:59:21', 'D8',default,default,'02.02.2019', @errMsg=@errMsg, @recordId=@recId;
+	exec newAttendanceRecord 'dhinojos', '06:00:03', 'D8',default,default,'03.02.2019', @errMsg=@errMsg, @recordId=@recId;
+
+	select * from attendance.attendance_record;
+	select * from attendance.recorded_shifts;
+rollback tran t1
 	
 /* if committed delete everyting from everywhere
 	delete from attendance.recorded_shifts where 1=1
@@ -119,7 +146,6 @@ rollback tran t0
 	delete from attendance.summary_bonuses where 1=1
 	delete from attendance.summary_public_holidays where 1=1
 	delete from attendance.summary where 1=1
-	delete from attendance.recorded_absence where 1=1;
 
 	delete from attendance.attendance_record where 1=1;
 
@@ -139,36 +165,3 @@ rollback tran t0
 	dbcc checkident ('logs.record_change_log', reseed, 0);
 	dbcc checkident ('logs.summary_state_snapshot', reseed, 0);
 	
-begin tran t2
-	declare @errMsg varchar(255);
-	declare @recId int;
-	select * from attendance.attusr
-	select * from attendance.shift
-	select * from attendance.attendance_record;
-	set datefirst 1
-	select @@DATEFIRST
-	exec newAttendanceRecord 'pflorian', '22:03:15', 'N8',default,default,'01.05.2019', 1, @errMsg=@errMsg, @recordId=@recId;
-	exec newAttendanceRecord 'pflorian', '21:57:23', 'N8',default,default,'02.05.2019', 1, @errMsg=@errMsg, @recordId=@recId;
-	exec newAttendanceRecord 'pflorian', '21:55:10', 'N8',default,default,'03.05.2019', 1, @errMsg=@errMsg, @recordId=@recId;
-	
-	select * from attendance.attendance_record;
-	select * from attendance.recorded_shifts;
-	select * from attendance.recorded_absence;
-
-	exec updateAttRecord 18, '06:02:11', @errMsg=@errMsg;
-	exec updateAttRecord 19, '06:04:43', @errMsg=@errMsg;
-	exec updateAttRecord 20, '06:01:21', @errMsg=@errMsg;
-
-	select * from attendance.summary;
-	select * from attendance.summary_bonuses;
-	select * from attendance.summary_absence;
-	select * from attendance.summary_public_holidays;
-	select * from logs.summary_state_snapshot;
-
-rollback tran t2
-
-begin tran t1
-	declare @errMsg varchar(255);
-	--exec getAttendanceSummaryOfUser @ulogin='pflorian', @monthAtt=2, @errMsg= @errMsg;
-	exec getMonthlyAttendanceOfUser @ulogin='pflorian', @monthAtt=2, @errMsg= @errMsg;
-rollback tran t1
