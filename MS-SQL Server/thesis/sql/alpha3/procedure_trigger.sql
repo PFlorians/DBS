@@ -504,7 +504,7 @@ as
 		throw 50222, @errMsg, 1;
 	end catch;
 go
-create proc determineAbsence
+alter proc determineAbsence
 @lastShift varchar(8),
 @recId int,
 @absenceType varchar(4),
@@ -526,17 +526,9 @@ as
 			-- in this case it is the same as worked hours
 			--set @absenceLength = (select top 1 hours_worked_day from attendance.attendance_record where record_id=@recId)
 			set @previousAbsenceLength = (select top 1 hours_absent from attendance.summary_absence where record_id=@recId order by id desc);
-			if(@updateAbsenceSummaryFlag = 1)
-			begin
-				update attendance.summary_absence
+			update attendance.summary_absence
 					set absence_type=@absenceType, record_id=@recId, day_of_absence=@lastDate, hours_absent=@absenceLength
-					where id=IDENT_CURRENT('attendance.summary_absence'); -- updating the last record, no insertion this time
-			end
-			else
-			begin
-				insert into attendance.summary_absence(absence_type, record_id, day_of_absence, hours_absent)
-					values(@absenceType, @recId, @lastDate, @absenceLength);
-			end;
+					where record_id=@recId; 
 
 			--update overall absence
 			set @monthlyHours = (select top 1 hours_absent_month from attendance.summary
