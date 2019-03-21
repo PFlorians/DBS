@@ -1,3 +1,6 @@
+create database attendance_dev;
+use attendance_dev
+go
 create schema attendance --authorization [GROUPHC\pafloria]
 go
 create schema logs --authorization [GROUPHC\pafloria]
