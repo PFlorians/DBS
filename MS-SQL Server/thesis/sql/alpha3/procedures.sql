@@ -51,7 +51,7 @@ as
 		select xact_state();
 	end catch;
 go
-create proc attRecInsertionSubroutine -- this must be called within try catch block
+alter proc attRecInsertionSubroutine -- this must be called within try catch block
 @ulogin varchar(40),
 @fromString varchar(40),
 @shift varchar(8),
@@ -89,9 +89,9 @@ as
 				update attendance.recorded_shifts
 					set shifttype=@shift
 					where record_id=@existingRecId;
-				update attendance.summary_absence
+				/*update attendance.summary_absence
 					set absence_type=@absenceType, day_of_absence=@day, hours_absent=@absenceLength
-					where record_id=@existingRecId;
+					where record_id=@existingRecId;*/
 				/*update attendance.recorded_absence
 					set [type]=@absenceType, absence_length=@absenceLength
 					where record_id=@existingRecId;*/
@@ -150,7 +150,7 @@ as
 		select XACT_STATE();
 	end;
 go
-create proc newAttendanceRecord
+alter proc newAttendanceRecord
 @ulogin varchar(40),
 @fromString varchar(40),
 @shift varchar(8),
@@ -173,11 +173,11 @@ as
 		end;
 		set @from=convert(time, @fromString);
 		set @day = convert(date, @dayString, 104);
-		if(@day in (select [day] from attendance.attendance_record)) -- someone beeps two times in succession
+		if(@day in (select [day] from attendance.attendance_record where userLogin=@ulogin)) -- someone beeps two times in succession
 		begin
 			declare @logTime time;
 			-- we need to check timestamp in log to probe for changes
-			set @recordId = (select top 1 record_id from attendance.attendance_record where [day]=@day);
+			set @recordId = (select top 1 record_id from attendance.attendance_record where [day]=@day and userLogin=@ulogin);
 			set @logTime = (select top 1 convert(time, rcl.change_timestamp, 101) from logs.record_change_log rcl
 							join logs.records_changes as rc on rc.log_id=rcl.log_id
 							join attendance.attendance_record as ar on ar.record_id=rc.record_id
@@ -335,7 +335,7 @@ as
 		throw 55505, @errMsg, 1;
 	end catch;
 go
-create proc updateAttRecordDeparture
+alter proc updateAttRecordDeparture
 @recId int,
 @leaveTimeString varchar(40),
 @forceUpdate bit = 0, -- if this is up then it will force to update the record without the 3 minutes update once rule
@@ -355,6 +355,7 @@ as
 	declare @sumOfAbsences real;
 	declare @summaryId int;
 	declare @summaryMonth int;
+	declare @ulogin varchar(40);
 
 	set datefirst 1;
 	begin try
@@ -387,11 +388,12 @@ as
 										attendance.shift as ash on ash.type=ars.shifttype
 										where ar.record_id=@recId);
 		set @day = (select top 1 ar.[day] from attendance.attendance_record ar where ar.record_id=@recId);
-
+		set @ulogin = (select top 1 userLogin from attendance.attendance_record where record_id = @recId);
 		set @summaryMonth = (select top 1 DATEPART(month, [day]) from attendance.attendance_record where record_id=@recId);
 
 		set @summaryId = (select top 1 summary_id from attendance.summary where record_id=(
-						select top 1 record_id from attendance.attendance_record where datepart(month, [day]) = @summaryMonth order by record_id asc)
+						select top 1 record_id from attendance.attendance_record where datepart(month, [day]) = @summaryMonth 
+							and userLogin=@ulogin order by record_id asc) 
 						);
 		-- very specific for public holiday only
 		if(@day in (select [date] from attendance.public_holidays))
