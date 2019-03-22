@@ -1,2 +1,3 @@
 # DBS
-Databases, contains mostly pure sql codes.
+This repo is used fo mostly Database related projects and scripts, it is not intended to be cloned the whole e.g. Git clone...
+but rather serve as a basic folder structure -> it is done done like this for a purpose, since there are on-going projects in a test phase
