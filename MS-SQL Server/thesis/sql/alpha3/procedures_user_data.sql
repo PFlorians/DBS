@@ -5,7 +5,7 @@
 -- Data read procedures go here
 use master
 use attendance_dev
-
+select distinct datepart(month, ar.[day]) from attendance.attendance_record ar
 alter proc getMonthlyAttendanceOfUser
 @ulogin varchar(40),
 @monthAtt int = 0,
@@ -16,7 +16,8 @@ as
 		if(@monthAtt = 0)
 		begin
 			set @monthAtt = DATEPART(month, convert(date, getdate(), 101));
-			select ar.[day] [day], ar.[from] [from], ar.until [until], ar.hours_worked_day [hours_worked_day], ars.shifttype [shifttype]
+			select ar.record_id as [id], ar.[day] [day], convert(char(8), ar.[from]) [from],
+			 convert(char(8), ar.until) [until], ar.hours_worked_day [hours_worked_day], ars.shifttype [shifttype]
 				from attendance.attendance_record ar
 				join attendance.recorded_shifts ars on ars.record_id=ar.record_id
 				where DATEPART(month, [day]) = @monthAtt and userLogin = @ulogin
@@ -24,7 +25,8 @@ as
 		end;
 		else
 		begin
-			select ar.[day] [day], ar.[from] [from], ar.until [until], ar.hours_worked_day [hours_worked_day], ars.shifttype [shifttype]
+			select ar.record_id as [id], ar.[day] [day], convert(char(8), ar.[from]) [from],
+			 convert(char(8), ar.until) [until], ar.hours_worked_day [hours_worked_day], ars.shifttype [shifttype]
 				from attendance.attendance_record ar
 				join attendance.recorded_shifts ars on ars.record_id=ar.record_id
 				where DATEPART(month, [day]) = @monthAtt and userLogin = @ulogin
@@ -141,3 +143,18 @@ begin tran t3
 	declare @errMsg varchar(255);
 	exec getMonthlySummaryOfUser 'pflorian', 2, @errMsg out;
 rollback tran t3
+go
+
+-- this returns a set of month in which the attendance for a given user exists
+alter proc getValidAttMonths
+@uname varchar(40),
+@errMsg varchar(255) output
+as
+	begin try
+	select distinct datepart(month, ar.[day]) as [month] from attendance.attendance_record ar
+		where ar.userLogin = @uname
+		order by [month] asc;
+	end try
+	begin catch
+		set @errMsg=ERROR_MESSAGE();
+	end catch;
