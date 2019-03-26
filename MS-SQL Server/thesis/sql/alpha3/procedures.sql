@@ -30,7 +30,7 @@ as
 	end catch;
 go
 -- check if user exists
-create proc userExists
+alter proc userExists
 @ulogin varchar(40),
 @var bit output,
 @errMsg varchar(255) output
@@ -45,6 +45,7 @@ as
 		begin
 			set @var = 0;
 		end;
+		select @var as [var];
 	end try
 	begin catch
 		set @errMsg = ERROR_MESSAGE();
