@@ -158,3 +158,13 @@ as
 	begin catch
 		set @errMsg=ERROR_MESSAGE();
 	end catch;
+go
+create proc getShiftTypes
+@errMsg varchar(255) output
+as
+	begin try
+		select type from attendance.shift
+	end try
+	begin catch
+		set @errMsg = Error_Message();
+	end catch;
